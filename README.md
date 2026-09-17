@@ -6,7 +6,7 @@
 [![python](https://img.shields.io/badge/python-3.9%20%E2%80%93%203.13-blue)](pyproject.toml)
 [![licence](https://img.shields.io/badge/licence-MIT-green)](LICENSE)
 [![engines](https://img.shields.io/badge/engines-Playwright%20%C2%B7%20Selenium%20%C2%B7%20Puppeteer%20%C2%B7%20Scraping%20Browser%20API-lightgrey)](#engines)
-[![account](https://img.shields.io/badge/runs%20without-a%202captcha%20account-brightgreen)](#do-you-need-to-pay-for-anything)
+[![what you need](https://img.shields.io/badge/what%20you%20need-a%20residential%20exit-orange)](#do-you-need-to-pay-for-anything)
 
 Scrapes job listings from [wellfound.com](https://wellfound.com) (formerly
 AngelList Talent): role landing pages, the `/jobs` discovery feed, and

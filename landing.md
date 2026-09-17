@@ -24,7 +24,7 @@ Full numbers are in the [repository README](https://github.com/2scraper/wellfoun
 - Three modes: a **role** landing page (the rich one, paginated), the **jobs** discovery feed, or a single **job** page.
 - Reads Wellfound's own embedded payloads — the Next.js Apollo cache on a listing, the schema.org `JobPosting` on a job page — so there is no fragile DOM scraping anywhere in the primary path.
 - JSON and CSV export, a documented 38-column `JobPosting` schema, and a `.meta.json` sidecar on every run recording status, pages completed and **Wellfound's own arithmetic**.
-- 349 offline checks, fixtures cut from real captures and verified to parse identically to the untrimmed originals.
+- 355 offline checks, fixtures cut from real captures and verified to parse identically to the untrimmed originals.
 - Optional 2Captcha integration, wired in but never required beyond the exit.
 
 ## Four things about Wellfound worth knowing before you start

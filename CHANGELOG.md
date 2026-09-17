@@ -40,7 +40,7 @@ date is given.
   landing page and a job page publish through different mechanisms and
   neither is a subset of the other. `diff_runs.py` reports a difference that
   comes with a source difference as `source_changed`.
-- **349 offline checks**, with fixtures cut from real captures and verified
+- **355 offline checks**, with fixtures cut from real captures and verified
   to parse identically to their untrimmed originals.
 
 ### Notes on the site, which decide how this repo is built

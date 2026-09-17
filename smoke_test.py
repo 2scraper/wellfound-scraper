@@ -1238,11 +1238,44 @@ def check_credential_scan_is_one_implementation_invoked_from_both():
     check("the credential scan exists as a script", os.path.exists(script))
     if not os.path.exists(script):
         return
-    workflow = os.path.join(HERE, ".github", "workflows", "tests.yml")
-    if os.path.exists(workflow):
+    workflow_dir = os.path.join(HERE, ".github", "workflows")
+    workflow = os.path.join(workflow_dir, "tests.yml")
+    # Triggered on the whole .github directory being absent, never on this one
+    # file being missing: two suites in this family run INSIDE the Docker
+    # image, which deliberately COPYs no .github/, and a check that quietly
+    # starts passing once its input disappears is the same failure this
+    # function is about (CLAUDE.md §22).
+    if not os.path.isdir(workflow_dir):
+        skip("ci-wiring", "no .github/ in this tree (the Docker image)")
+    elif os.path.exists(workflow):
         text = open(workflow, encoding="utf-8").read()
         check("CI INVOKES the script rather than reimplementing it",
               "ci_checks.py" in text)
+        # ...and does not ALSO reimplement it. The original version of this
+        # check asserted only the first half, and the workflow carried inline
+        # `python - <<EOF` copies of the --help and sample checks alongside
+        # the call — justified in a comment as keeping the two from drifting
+        # apart. They drifted: the inline sample copy still imported the row
+        # dataclass under a name this repo renamed, and it failed on the
+        # repo's FIRST push while the script it duplicated passed.
+        #
+        # Scoped to the OFFLINE job, because the docker job legitimately
+        # names `sample_output.json` for a different purpose — asserting the
+        # image does NOT contain it. A guard that fired there would be wrong,
+        # and a guard people have to argue with is one they learn to
+        # suppress.
+        offline = text.split("  engine-smoke:", 1)[0]
+        for marker, what in (("from output_writer import", "the row schema"),
+                             ("sample_output.json", "the sample output"),
+                             ("subprocess.run([sys.executable", "the --help contract")):
+            check("the offline job does not reimplement the check for %s" % what,
+                  marker not in offline,
+                  "tests.yml's offline job mentions %r — one implementation, "
+                  "in ci_checks.py, invoked from both" % marker)
+        # And the guard must have had something to read, or it passed for the
+        # wrong reason (CLAUDE.md §22).
+        check("...and the offline job was actually found to scan",
+              "ci_checks.py" in offline, "no offline job in tests.yml")
     result = subprocess.run([sys.executable, script, "--all"], cwd=HERE,
                             capture_output=True, text=True)
     check("the credential scan passes on this repo's own tree",

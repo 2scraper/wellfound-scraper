@@ -155,9 +155,19 @@ HOSTS = ("wellfound.com", "www.wellfound.com")
 CANONICAL_HOST = "wellfound.com"
 BASE_URL = "https://" + CANONICAL_HOST
 
-# angel.co was AngelList Talent's old home and still redirects here. It is
-# refused with the reason rather than silently rewritten, because a user who
-# typed it may be expecting the old site's routes, which no longer exist.
+# angel.co was AngelList Talent's old home and still redirects here — and
+# the redirect really does carry the path: measured 2026-09-17,
+# `angel.co/role/r/software-engineer` came back 200 at
+# `wellfound.com/role/r/software-engineer` with byte-for-byte the same page.
+#
+# It is still refused rather than silently rewritten, and the reason is
+# narrow enough to be true: this scraper's route table, its canonical URLs
+# and every row's `url` column are wellfound.com, so accepting a second
+# spelling of the same host would put two spellings into the output for one
+# job. The refusal says the host redirects and asks for the wellfound.com
+# form — it does NOT claim the address is dead, because it is not
+# (CLAUDE.md §5: a refusal with a false reason sends the reader hunting for
+# a typo).
 LEGACY_HOSTS = ("angel.co", "www.angel.co", "angellist.com", "www.angellist.com")
 
 MODES = ("role", "jobs", "job")

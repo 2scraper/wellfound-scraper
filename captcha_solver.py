@@ -4,63 +4,112 @@ captcha_solver.py
 Shared helper used by all three scrapers (Playwright / Selenium / Puppeteer).
 
 Detection runs after EVERY page navigation in the main loop of all three
-scrapers, regardless of what URL was requested (category hub, product page,
-sign-in, checkout, anything) — this is deliberate, not scoped to any one
-page. If foodpanda renders a reCAPTCHA challenge anywhere — account,
-sign-in and checkout flows are the usual places — this fires.
+scrapers, regardless of what URL was requested — this is deliberate, not
+scoped to any one page, because which challenge a visitor meets depends on
+the exit and on what the address has been doing.
 
-**THIS MODULE IS LOAD-BEARING ON THIS SITE.** PerimeterX's denial page
-carries a `g-recaptcha` container that looks like an ordinary v2 checkbox,
-and the loader beside it is the ENTERPRISE API —
-`https://www.google.com/recaptcha/enterprise.js`, measured on four denial
-documents across two country sites, with zero occurrences of
-`recaptcha/api.js` on any of them.
+WHAT THIS MODULE IS FOR ON WELLFOUND
+------------------------------------
+Two Cloudflare surfaces, and they are not the same thing:
 
-Solved, end to end, 2026-09-16: `RecaptchaV2EnterpriseTaskProxyless`, ~55
-seconds, $0.00299, and the refused page came back with its full grid. The
-control matters as much as the result — reloading a denial page in the same
-session WITHOUT solving cleared it 0 of 8 times, so the token is what got in.
+  * **Cloudflare's managed challenge**, which every route answers with from
+    a scored address. Two skins — a branded "Security Check | Wellfound" 403
+    for a plain HTTP client, and the "Just a moment..." interstitial for a
+    browser. It publishes NO sitekey: Cloudflare calls `turnstile.render()`
+    once and keeps nothing, so `sitekey`, `action`, `cData` and
+    `chlPageData` exist only inside that call. A static read of the markup —
+    any static read, however careful — cannot produce a solvable task. The
+    engines install `TURNSTILE_INTERCEPT_JS` on the context before any page
+    script runs to capture them, and refuse to build a task without a
+    sitekey rather than paying for one the API will reject.
 
-Two things decide whether that money buys anything:
+  * **Wellfound's OWN Turnstile**, which is configured on every page the
+    site serves: it ships the api.js loader, publishes
+    `CLOUDFLARE_TURNSTILE_SITE_KEY` in its page config, and renders a widget
+    into `#turnstile_widget` when one of its own XHRs is challenged. That
+    one IS solvable from a static read, because its sitekey is published.
+    It has not been observed firing on a listing fetch.
+
+**This module is NOT load-bearing on this site, and saying so is the honest
+sentence rather than a hedge.** Measured 2026-09-17: from a 2captcha
+residential US exit every route this scraper reads answered HTTP 200, three
+times out of three, with no challenge rendered at all. From a datacenter
+address every route was refused.
+
+And the solve was measured too, rather than assumed, from that datacenter
+address where a real challenge renders on every fetch:
+
+    the interception captured all four parameters   yes, every attempt
+    2captcha returned a token (Turnstile, 5-20 s)   yes
+    Cloudflare accepted it                          NO — 3 tokens, 3 refusals
+
+So what clears this site is the EXIT, not a token — which is why
+`--solve-captcha when-blocked` is the default with the retry budget ahead of
+any spending, and why `page_flow.SOLVES_PER_PAGE` caps a page at one
+purchase. That cap was not actually enforced until this was run: the
+engines call the solver from two places and only one was counted, so one
+page bought three tokens. Both call sites are counted now.
+
+The refusal is a fact about THIS page from THIS kind of address, not about
+the product. The same task type is solved and accepted on a sibling site in
+this family, and the figures for that are below.
+
+What is NOT true, and must never be written, is that a captcha here "cannot
+be solved". 2captcha solves Cloudflare Turnstile
+(`TurnstileTaskProxyless`), enterprise reCAPTCHA
+(`RecaptchaV2EnterpriseTaskProxyless`) and ordinary v2/v3, and this module
+builds all of them. The only sentence this repo is entitled to is which task
+types it implements (CLAUDE.md §19).
+
+PROVENANCE OF THE FIGURES BELOW
+-------------------------------
+This file is family core and carries measurements taken on SIBLING sites.
+They are evidence about the SOLVER, not about Wellfound, and are labelled as
+such so nobody re-reads them as facts about this site:
+
+  * foodpanda-scraper, 2026-09-16: a Cloudflare Turnstile Challenge page
+    solved via the `turnstile.render` interception — all four parameters
+    captured, an 837-character token in 11 seconds, $0.00145, and the page
+    came back as the real site.
+  * foodpanda-scraper, 2026-09-16: `RecaptchaV2EnterpriseTaskProxyless` on a
+    PerimeterX denial page, ~55 seconds, $0.00299. The control matters as
+    much as the result — reloading that page in the same session WITHOUT
+    solving cleared it 0 of 8 times, so the token is what got in.
+
+Two things decide whether that money buys anything anywhere:
 
   * **the task type.** An enterprise widget solved as ordinary v2 returns a
     token the site rejects. `CaptchaChallenge.enterprise` carries the page's
     own answer — its loader, and `window.grecaptcha.enterprise` — into
     `_v2_task_for`.
-  * **the variant.** The first live attempt read a bframe with no `size` as
-    v3, bought a `RecaptchaV3TaskProxyless` and got
+  * **the variant.** A sibling's first live attempt read a bframe with no
+    `size` as v3, bought a `RecaptchaV3TaskProxyless` and got
     ERROR_CAPTCHA_UNSOLVABLE after 87 seconds. v3 renders no challenge frame
-    at all, so a frame present now settles it as a v2 checkbox.
+    at all, so a frame present settles it as a v2 checkbox.
 
-It is still not the FIRST thing to reach for: this site's refusal is
-per-session, and a fresh browser clears it for nothing. Hence
-`--solve-captcha when-blocked` as the default, with the retry budget ahead of
-any spending.
-
-Detection therefore stays BROAD (which challenge a visitor meets depends on
-the exit and on what the address has been doing) while spending stays
-NARROW: `--solve-captcha when-blocked` is the default and counts product
-links before paying, `page_flow.SOLVES_PER_PAGE` caps a page at one
-purchase, and `page_flow.STATE_POLICY` — not this file — decides which state
-is worth money at all.
+Detection therefore stays BROAD while spending stays NARROW:
+`--solve-captcha when-blocked` is the default and counts job links before
+paying, `page_flow.SOLVES_PER_PAGE` caps a page at one purchase, and
+`page_flow.STATE_POLICY` — not this file — decides which state is worth
+money at all.
 
 There is deliberately no DataDome path here. See "No DataDome solver" below.
 
 Flow:
-  1. Both detectors run and are reconciled (see reconcile_detections) to decide
-     the variant: v3, v2-invisible or v2-checkbox. The parameters differ per
-     variant and are not interchangeable — v3 params sent for a v2-invisible
-     widget buy a token the site rejects.
+  1. Both detectors run and are reconciled (see reconcile_detections) to
+     decide the variant: v3, v2-invisible or v2-checkbox. The parameters
+     differ per variant and are not interchangeable — v3 params sent for a
+     v2-invisible widget buy a token the site rejects.
   2. The challenge goes to 2captcha's API (v2 by default, legacy v1 as a
      one-shot fallback) with the parameters for that variant.
-  3. The resulting token is injected into the page's `g-recaptcha-response`
-     textarea and any bound callback is invoked.
+  3. The token is injected — into `g-recaptcha-response` for reCAPTCHA, or
+     into `cf-turnstile-response` plus the page's own callback for Turnstile.
 
 Often none of this is needed. Over the Scraping Browser API,
 `Captcha.setAutoSolve` can clear the challenge inside the browser before this
-code gets a turn — treat `Captcha.solveFinished` as the success signal and keep
-this path as the fallback rather than assuming every detection completes.
-This module is the path for a browser you launched yourself.
+code gets a turn — treat `Captcha.solveFinished` as the success signal and
+keep this path as the fallback. This module is the path for a browser you
+launched yourself.
 
 No other captcha vendor is integrated (per spec: no competitors).
 """

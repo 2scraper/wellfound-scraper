@@ -209,7 +209,10 @@
           <td>Cloudflare&rsquo;s managed challenge, if you meet one. It publishes no sitekey
             &mdash; it calls <code>turnstile.render()</code> once and keeps nothing &mdash; so
             this scraper hooks that call before any page script runs, and refuses to buy a task
-            it could not build properly.</td>
+            it could not build properly. Measured honestly: from a datacenter address the hook
+            captured all four parameters and 2Captcha returned a token in 5&ndash;20&nbsp;s, but
+            <strong>Cloudflare refused it</strong> (3 tokens, 3 refusals). On this site the exit
+            is what works, and it costs less.</td>
         </tr>
         <tr>
           <td><strong>Fingerprints</strong></td>

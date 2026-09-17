@@ -770,6 +770,28 @@ def _parse_for_mode(html: str, url: str, args, page_num: int = 1):
     return listing.rows, listing
 
 
+def _solve_budget(args, spent: int):
+    """Whether another solve may be bought for this page, and the reason.
+
+    `page_flow.SOLVES_PER_PAGE` says at most one purchase per page, and that
+    is a MONEY limit rather than a style rule. It was not being enforced:
+    `handle_captcha_if_present` is called twice per attempt — once before the
+    page is classified, so a challenge is cleared before anything is judged,
+    and once after, for the state that says the page really is gated — and
+    only the SECOND call was counted.
+
+    Measured 2026-09-17 on a run from a datacenter address, which meets a
+    real Cloudflare challenge on every fetch: ONE page bought THREE Turnstile
+    solves — two from the uncounted call across two block attempts, one from
+    the counted one — and every token was refused. The cap read as enforced
+    and was not (CLAUDE.md §17: a policy constant nothing reads is the same
+    defect as dead code).
+
+    Both call sites now go through here.
+    """
+    return spent < page_flow.SOLVES_PER_PAGE
+
+
 def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome:
     """Fetch and parse one page. Retries, rotations and debug dumps live here.
 
@@ -849,10 +871,19 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
         if load_failed:
             break
 
-        if handle_captcha_if_present(session.page, args):
-            # A solve navigated the page. Give the destination a moment
-            # before judging what came back.
-            session.page.wait_for_timeout(1000)
+        # Counted, because it can BUY. See _solve_budget.
+        if _solve_budget(args, solves_bought):
+            solves_bought += 1
+            if handle_captcha_if_present(session.page, args):
+                # A solve navigated the page. Give the destination a moment
+                # before judging what came back.
+                session.page.wait_for_timeout(1000)
+        elif solves_bought:
+            logger.info("Not solving again on page %d: %d purchase(s) already "
+                        "made for it and SOLVES_PER_PAGE is %d. A challenge "
+                        "that survives a paid token is not one this run can "
+                        "pass.", page_num, solves_bought,
+                        page_flow.SOLVES_PER_PAGE)
 
         html = _snapshot(session.page, url) or ""
         state = _classify(session.page, html, mode=args.mode)
@@ -893,7 +924,7 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
         # sitekey-less detection refuses to build a task at all rather than
         # paying for one the API will reject (CLAUDE.md §19).
         if (page_flow.should_solve(state)
-                and solves_bought < page_flow.SOLVES_PER_PAGE):
+                and _solve_budget(args, solves_bought)):
             solves_bought += 1
             if handle_captcha_if_present(session.page, args):
                 session.page.wait_for_timeout(1000)
@@ -948,8 +979,29 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
                 time.sleep(pause)
 
     if load_failed:
-        logger.error("Gave up loading %s after %d attempt(s).", url, args.retries)
+        # NAME the proxy when it was the proxy. CLAUDE.md §8: a dead exit and
+        # a timeout want opposite responses — another try at the same exit
+        # versus a different exit — so a message that cannot tell them apart
+        # leaves the reader guessing which they got.
+        #
+        # This branch used to drop `exit_failed` on the floor. With a POOL the
+        # reason was logged on rotation, but WITHOUT one — a single --proxy,
+        # which is the common case — the run said only "gave up loading" for
+        # a proxy that had refused the connection outright. Found by running
+        # it: `--proxy http://127.0.0.1:9` reported the generic message while
+        # `_proxy_failure()` had correctly identified
+        # ERR_PROXY_CONNECTION_FAILED one frame earlier.
+        if exit_failed:
+            logger.error(
+                "Gave up loading %s: the PROXY refused the connection (%s), "
+                "which is not a timeout and will not fix itself on a retry "
+                "from the same exit. Check the exit, or pass --proxy-file so "
+                "the run can rotate to another one.", url, exit_failed)
+        else:
+            logger.error("Gave up loading %s after %d attempt(s).",
+                         url, args.retries)
         outcome.load_failed = True
+        outcome.blocked_by = None
         return outcome
 
     outcome.state = state

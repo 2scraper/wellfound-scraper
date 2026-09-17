@@ -196,10 +196,29 @@ script runs, that hooks `turnstile.render` and records its arguments. If a
 sitekey is still not captured the run **refuses to build a task** rather
 than paying for one the API will reject.
 
+**And here is what that actually bought, measured 2026-09-17 from a
+datacenter address**, because a claim about a paid product with no number
+beside it is a guess wearing a fact's clothes:
+
+| step | result |
+|---|---|
+| the hook captured the parameters | **yes** — all four, on every attempt |
+| 2Captcha returned a token | **yes** — `TurnstileTaskProxyless`, 5–20 s |
+| Cloudflare accepted it | **no** — the page stayed blocked, 3 tokens, 3 refusals |
+
+So on this site, from a scored address, a solved token did not get in
+during testing. That is a statement about **this page and this exit**, not
+about the product: the same challenge type is solved and accepted elsewhere
+in this project family. What works here is a residential exit, which costs
+less and removes the challenge entirely.
+
+The run is bounded accordingly: `SOLVES_PER_PAGE` is 1 and **both** of the
+engine's solve call sites are counted against it. That cap was not actually
+enforced until this was measured — one call site was uncounted, so a single
+page bought three tokens before the fix and one after.
+
 The site's own widget is a different thing and is solvable from a static
 read, because its sitekey is published in the page config.
-
----
 
 ## Engines
 
@@ -265,13 +284,19 @@ one page five times.
 * **`has_equity: false` is not the same as `null`.** False means the listing
   printed "No equity". Null means it said nothing.
 * **A "page" is twenty companies.** See above.
+* **`years_experience_max` is almost always null** — 1 of 1,216 rows pooled
+  across every live run. Wellfound's listings state a minimum and rarely a
+  maximum. The column is kept because it is genuinely populated sometimes,
+  not because the field exists.
 * **`remote_kind` is null on 231 of 432 records.** The listing did not
   configure one; `remote` is the field to trust.
 * **`/company/{slug}` is gated** even from a residential exit. Not a bug in
   your proxy.
-* **`angel.co` redirects here** but its old routes no longer exist, so the
-  scraper refuses that host with that reason rather than "not a Wellfound
-  site".
+* **`angel.co` redirects here and the redirect keeps your path** —
+  measured, `angel.co/role/r/software-engineer` returns the same page as
+  `wellfound.com/role/r/software-engineer`. The scraper still refuses the
+  old host, so that one job never appears under two spellings, and the
+  refusal says exactly that rather than "not a Wellfound site".
 
 ---
 

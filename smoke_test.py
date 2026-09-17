@@ -1507,6 +1507,103 @@ def check_every_engine_exposes_the_same_public_surface():
               engine.CORE_FIELD_FLOOR, 99)
 
 
+def check_every_solve_is_counted_against_the_budget():
+    """`SOLVES_PER_PAGE` is a MONEY limit, so every call that can buy must be
+    counted — CLAUDE.md §17's "a policy constant nothing reads".
+
+    `handle_captcha_if_present` is called TWICE per attempt in every engine:
+    once before the page is classified (so a challenge is cleared before
+    anything is judged) and once after, for the state that says the page
+    really is gated. Only the second was counted, and the first therefore
+    bought a solve on every block attempt, for free, silently.
+
+    Measured live 2026-09-17 from a datacenter address, which meets a real
+    Cloudflare challenge on every fetch: one page bought THREE Turnstile
+    solves before the fix and ONE after, with the cap set to 1 both times.
+    Every token was refused either way, so the three purchases bought
+    nothing at all.
+
+    Asserted on the source, because the branch only runs when a challenge is
+    actually rendered and the suite must pass offline.
+    """
+    for module in ENGINES:
+        path = os.path.join(HERE, module + ".py")
+        if not os.path.exists(path):
+            continue
+        source = open(path, encoding="utf-8").read()
+        calls = source.count("if handle_captcha_if_present(")
+        check("%s calls the solver from two places, as designed" % module,
+              calls == 2, "found %d call site(s)" % calls)
+        # Both must sit under a budget test. Counting the guard is the cheap
+        # way to say that without parsing the control flow.
+        guards = source.count("_solve_budget(args, solves_bought)")
+        check("%s gates BOTH solve call sites on the budget" % module,
+              guards == calls,
+              "%d budget guard(s) for %d call site(s)" % (guards, calls))
+        check("%s increments the counter beside each guard" % module,
+              source.count("solves_bought += 1") == calls,
+              "%d increment(s) for %d call site(s)"
+              % (source.count("solves_bought += 1"), calls))
+    # And the constant must still be the one thing that decides it.
+    import page_flow
+    equal("at most one purchase per page", page_flow.SOLVES_PER_PAGE, 1)
+
+
+def check_a_dead_proxy_is_reported_as_a_proxy_failure():
+    """CLAUDE.md §8: a proxy failure is not a timeout, and the two want
+    opposite responses — another try at the same exit versus a different one.
+
+    The engines all compute the reason (`_proxy_failure`) and, WITH a pool,
+    log it on rotation. Without a pool — a single `--proxy`, which is the
+    common case — an earlier version dropped it and reported only "gave up
+    loading", so a refused proxy read exactly like a slow site. Found by
+    running it rather than by reading it: `--proxy http://127.0.0.1:9`
+    printed the generic message while `_proxy_failure()` had already
+    identified ERR_PROXY_CONNECTION_FAILED.
+
+    Asserted on the SOURCE rather than by launching a browser, because the
+    branch only runs when a navigation fails and the suite must pass with no
+    engine library installed at all.
+    """
+    for module in ENGINES:
+        path = os.path.join(HERE, module + ".py")
+        if not os.path.exists(path):
+            continue
+        source = open(path, encoding="utf-8").read()
+        # Anchored on the GIVE-UP branch — the one that reports and returns —
+        # not on the `if load_failed: break` inside the retry loop, which
+        # comes first in the file and would make this check read the wrong
+        # block and pass for the wrong reason (CLAUDE.md §22).
+        marker = "        outcome.load_failed = True"
+        if marker not in source:
+            check("%s has a give-up branch to check" % module, False)
+            continue
+        end = source.index(marker)
+        branch = source[max(0, end - 1800):end]
+        check("%s names the proxy when the proxy was the fault" % module,
+              "if exit_failed:" in branch,
+              "the give-up branch does not consult exit_failed")
+        check("%s still has a plain message for a non-proxy failure" % module,
+              "after %d attempt(s)" in branch,
+              "the non-proxy branch was lost")
+    # ...and the detector the branch depends on must actually match the
+    # string Chromium produces. Measured live 2026-09-17 against a dead
+    # local port: `net::ERR_PROXY_CONNECTION_FAILED`.
+    engine = _import_engine("playwright_scraper")
+    if engine is None:
+        skip("proxy-failure", "playwright_scraper not importable here")
+    else:
+        class _E(Exception):
+            pass
+        got = engine._proxy_failure(
+            _E("Page.goto: net::ERR_PROXY_CONNECTION_FAILED at https://x/"))
+        equal("the marker list matches what Chromium really raises", got,
+              "ERR_PROXY_CONNECTION_FAILED")
+        equal("...and a plain timeout is NOT read as a proxy failure",
+              engine._proxy_failure(_E("Page.goto: Timeout 25000ms exceeded.")),
+              "")
+
+
 def check_engines_do_not_evaluate_a_string_in_the_browser():
     """§18: a site whose CSP omits `unsafe-eval` kills wait_for_function with
     an EvalError and takes the run down with exit 1. Wellfound has not been

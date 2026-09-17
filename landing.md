@@ -43,7 +43,7 @@ Full numbers are in the [repository README](https://github.com/2scraper/wellfoun
 |---|---|
 | **Residential proxies** | The one thing this site requires. A datacenter address gets HTTP 403 on every route, to every client tried. |
 | **Scraping Browser API** | A remote browser you do not run or patch, with a chosen exit country and a persistent cookie profile. |
-| **Captcha solving** | Cloudflare's managed challenge, if you meet one. It publishes no sitekey — it calls `turnstile.render()` once and keeps nothing — so this scraper hooks that call before any page script runs, and refuses to buy a task it could not build properly. |
+| **Captcha solving** | Cloudflare's managed challenge, if you meet one. It publishes no sitekey — it calls `turnstile.render()` once and keeps nothing — so this scraper hooks that call before any page script runs, and refuses to buy a task it could not build properly. Measured honestly: from a datacenter address the hook captured all four parameters and 2Captcha returned a token in 5–20 s, but **Cloudflare refused it** (3 tokens, 3 refusals). On this site the exit is what works, and it costs less. |
 | **Fingerprints** | A consistent device identity for a local browser. |
 
 One key, four separately-billed products: [2captcha.com](https://2captcha.com)

@@ -206,12 +206,13 @@ def _run_once(args, attempt: int = 1, attempts: int = 1) -> int:
             f.write(html)
         logger.error(
             "Wellfound did not serve the Scraper API's request (upstream HTTP %s, "
-            "%d bytes) — saved to %s. Measured 2026-09-16 on this exact URL: "
-            "the Scraper API's own exits are datacenter addresses and Wellfound "
-            "refuses them (403, 12,889 bytes), while the SAME task routed "
-            "through a Scraping Browser session returned 200 and 113,389 "
-            "bytes with the profile parsing in full. Pass --cdp-url. This is "
-            "exit 3, distinct from an empty result (exit 4).",
+            "%d bytes) — saved to %s. Measured 2026-09-17 on "
+            "/role/r/software-engineer, two attempts: the Scraper API's own "
+            "exits are datacenter addresses and Wellfound refuses them "
+            "(upstream 403, 11,825 bytes, both times), while the SAME task "
+            "routed through a Scraping Browser session returned upstream 200 "
+            "with 610,897 bytes and parsed 37 job rows. Pass --cdp-url. This "
+            "is exit 3, distinct from an empty result (exit 4).",
             upstream_status, len(html), dump)
         return 3
 

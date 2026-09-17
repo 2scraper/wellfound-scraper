@@ -626,6 +626,22 @@ def _target_url(args) -> str:
     return role_url(args.role, location=args.location, remote=args.remote)
 
 
+def _solve_budget(args, spent: int):
+    """Whether another solve may be bought for this page.
+
+    `page_flow.SOLVES_PER_PAGE` says at most one purchase per page, and that
+    is a MONEY limit rather than a style rule. It was not being enforced:
+    `handle_captcha_if_present` is called twice per attempt — once before the
+    page is classified and once after — and only the SECOND call was counted.
+
+    Measured 2026-09-17 from a datacenter address, which meets a real
+    Cloudflare challenge on every fetch: ONE page bought THREE Turnstile
+    solves, and every token was refused. The cap read as enforced and was not
+    (CLAUDE.md §17). Both call sites now go through here.
+    """
+    return spent < page_flow.SOLVES_PER_PAGE
+
+
 def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome:
     """Fetch and parse one page. Mirrors playwright_scraper._fetch_one_page.
 
@@ -658,7 +674,11 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
 
     for block_attempt in range(block_retries + 1):
         logger.info("Fetching page %d/%d: %s", page_num, args.pages, url)
-        load_failed = False
+        # `exit_failed` holds Chromium's own name for a proxy fault, or None.
+        # Named and shaped exactly as in the other two engines: the give-up
+        # branch below reports it, and three engines that structure this
+        # differently drift (CLAUDE.md §6).
+        load_failed, exit_failed = False, None
         for attempt in range(1, args.retries + 1):
             try:
                 bridge.run(page.goto(url, {"waitUntil": "domcontentloaded",
@@ -672,7 +692,9 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
                 # does; a timeout and an unusable exit want opposite
                 # responses, so they are told apart by that text.
                 text = str(e)
-                if any(marker in text for marker in _PROXY_ERROR_MARKERS):
+                marker = next((m for m in _PROXY_ERROR_MARKERS if m in text), None)
+                if marker:
+                    exit_failed = marker
                     logger.warning("Exit %s is unusable (%s).",
                                    mask(pool.current) if pool else "(none)", text[:120])
                     break
@@ -693,9 +715,16 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
             break
 
 
-        if handle_captcha_if_present(session, args):
-            time.sleep(1)
+        # Counted, because it can BUY. See _solve_budget.
+        if _solve_budget(args, solves_bought):
+            solves_bought += 1
+            if handle_captcha_if_present(session, args):
+                time.sleep(1)
 
+        elif solves_bought:
+            logger.info("Not solving again on page %d: %d purchase(s) "
+                        "already made for it and SOLVES_PER_PAGE is %d.",
+                        page_num, solves_bought, page_flow.SOLVES_PER_PAGE)
         html = _snapshot(session, url) or ""
         state = page_flow.classify(html, None, page.url)
 
@@ -731,7 +760,7 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
         # manager can be switched on between deploys, and bounded by
         # SOLVES_PER_PAGE so a speculative path cannot become a bill.
         if (page_flow.should_solve(state)
-                and solves_bought < page_flow.SOLVES_PER_PAGE):
+                and _solve_budget(args, solves_bought)):
             solves_bought += 1
             if handle_captcha_if_present(session, args):
                 time.sleep(1)
@@ -765,8 +794,29 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
             d = _driver(session)
 
     if load_failed:
-        logger.error("Gave up loading %s after %d attempt(s).", url, args.retries)
+        # NAME the proxy when it was the proxy. CLAUDE.md §8: a dead exit and
+        # a timeout want opposite responses — another try at the same exit
+        # versus a different exit — so a message that cannot tell them apart
+        # leaves the reader guessing which they got.
+        #
+        # This branch used to drop `exit_failed` on the floor. With a POOL the
+        # reason was logged on rotation, but WITHOUT one — a single --proxy,
+        # which is the common case — the run said only "gave up loading" for
+        # a proxy that had refused the connection outright. Found by running
+        # it: `--proxy http://127.0.0.1:9` reported the generic message while
+        # `_proxy_failure()` had correctly identified
+        # ERR_PROXY_CONNECTION_FAILED one frame earlier.
+        if exit_failed:
+            logger.error(
+                "Gave up loading %s: the PROXY refused the connection (%s), "
+                "which is not a timeout and will not fix itself on a retry "
+                "from the same exit. Check the exit, or pass --proxy-file so "
+                "the run can rotate to another one.", url, exit_failed)
+        else:
+            logger.error("Gave up loading %s after %d attempt(s).",
+                         url, args.retries)
         outcome.load_failed = True
+        outcome.blocked_by = None
         return outcome
 
     outcome.state = state

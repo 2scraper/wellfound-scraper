@@ -71,6 +71,16 @@ date is given.
 - **`/jobs` has no addressable pages.** `?page=2` returns the identical 46
   job ids as page 1, so that mode reports `single_page_listing` rather than a
   complete multi-page run holding one page several times.
+- **Cloudflare's challenge is reached, built and bought correctly — and the
+  token was refused.** From a datacenter address, where a challenge renders
+  on every fetch: the `turnstile.render` hook captured all four parameters
+  every time, 2Captcha returned a `TurnstileTaskProxyless` token in 5–20 s,
+  and Cloudflare did not accept it — 3 tokens, 3 refusals, page still
+  blocked. That is a fact about this page and this kind of exit, not about
+  the product; a residential exit removes the challenge entirely and costs
+  less. `SOLVES_PER_PAGE` is 1, and enforcing it was a fix rather than a
+  restatement: the engines call the solver from two places and only one was
+  counted, so a single page bought three tokens before this release.
 - **The two structured sources agree about pay.** Job 4697947 is
   `$100k – $180k` on the listing and 100000–180000 USD in the detail page's
   `baseSalary`.

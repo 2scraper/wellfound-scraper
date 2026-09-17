@@ -1,0 +1,330 @@
+# wellfound-scraper
+
+[![release](https://img.shields.io/github/v/release/2scraper/wellfound-scraper?sort=semver)](https://github.com/2scraper/wellfound-scraper/releases)
+[![tests](https://github.com/2scraper/wellfound-scraper/actions/workflows/tests.yml/badge.svg)](https://github.com/2scraper/wellfound-scraper/actions/workflows/tests.yml)
+[![canary](https://github.com/2scraper/wellfound-scraper/actions/workflows/canary.yml/badge.svg)](https://github.com/2scraper/wellfound-scraper/actions/workflows/canary.yml)
+[![python](https://img.shields.io/badge/python-3.9%20%E2%80%93%203.13-blue)](pyproject.toml)
+[![licence](https://img.shields.io/badge/licence-MIT-green)](LICENSE)
+[![engines](https://img.shields.io/badge/engines-Playwright%20%C2%B7%20Selenium%20%C2%B7%20Puppeteer%20%C2%B7%20Scraping%20Browser%20API-lightgrey)](#engines)
+[![account](https://img.shields.io/badge/runs%20without-a%202captcha%20account-brightgreen)](#do-you-need-to-pay-for-anything)
+
+Scrapes job listings from [wellfound.com](https://wellfound.com) (formerly
+AngelList Talent): role landing pages, the `/jobs` discovery feed, and
+individual job pages — with the company's size, badges and tagline, the
+salary AND equity ranges, and the full job description.
+
+Four ways to fetch — Playwright, Selenium, Puppeteer, or the 2Captcha
+Scraping Browser API over CDP — one output schema, and every number below
+measured on a date that is written beside it.
+
+```bash
+pip install -r requirements.txt -r requirements-playwright.txt
+playwright install chromium
+
+python3 playwright_scraper.py \
+    --url "https://wellfound.com/role/r/software-engineer" --pages 3
+```
+
+---
+
+## What you actually get
+
+One row per job listing, 38 columns. Cut from a real run —
+[`sample_output.json`](sample_output.json) and
+[`sample_output.csv`](sample_output.csv) are ten of those rows.
+
+```json
+{
+  "source": "wellfound.com",
+  "url": "https://wellfound.com/jobs/4697947-senior-software-engineer",
+  "sku": "4697947",
+  "title": "Senior Software Engineer",
+  "company_name": "Confident LIMS",
+  "company_size": "11-50",
+  "company_tagline": "The easiest way to test",
+  "company_badges": ["Actively Hiring", "Top 1% of responders", "YC Funded"],
+  "job_type": "full-time",
+  "years_experience_min": 5,
+  "posted_at": "2026-09-10T17:59:14+00:00",
+  "remote": true,
+  "remote_locations": ["Canada", "South America", "United States"],
+  "compensation": "$100k – $180k • 0.05% – 0.25%",
+  "salary_min": 100000.0, "salary_max": 180000.0, "salary_currency": "USD",
+  "equity_min": 0.05, "equity_max": 0.25, "has_equity": true,
+  "description": "…",
+  "data_source": "apollo", "page": 1, "position": 1
+}
+```
+
+Measured over 375 landing-page rows from 165 distinct companies, across six
+live runs on **2026-09-17**:
+
+| column | populated | why not more |
+|---|---|---|
+| `title`, `sku`, `url`, `company_name`, `company_id` | **100%** | the floor the run warns below |
+| `description` | **100%** on landing rows, **0%** on the `/jobs` feed | the feed's records are a thinner type that carries none |
+| `company_badges` | 92–98% | a company with no badges genuinely has none |
+| `salary_min` | **83%** | 63 of 375 listings state no pay at all |
+| `has_equity` | 33 say yes, 30 say "No equity", 312 do not say | `false` is a statement the listing made; `null` is silence |
+
+Currencies seen: USD 303, INR 6, GBP 2. Company sizes: `51-200` and `11-50`
+dominate at 127 and 126.
+
+---
+
+## Three modes
+
+```bash
+# 1. A role landing page — the rich one. Paginates.
+python3 playwright_scraper.py --role software-engineer --remote --pages 3
+python3 playwright_scraper.py --role data-scientist --location new-york --pages 2
+
+# 2. The discovery feed. One page, thinner rows.
+python3 playwright_scraper.py --mode jobs
+
+# 3. One job, from its schema.org JobPosting.
+python3 playwright_scraper.py --mode job \
+    --url "https://wellfound.com/jobs/4697947-senior-software-engineer"
+```
+
+| mode | route | rows carry | paginates |
+|---|---|---|---|
+| `role` *(default)* | `/role/{r}` · `/role/r/{r}` · `/role/l/{r}/{loc}` | everything above | yes, `?page=N` |
+| `jobs` | `/jobs` | no description, no job type, no badges | **no** — one address |
+| `job` | `/jobs/{id}-{slug}` | adds `salary_period`, `benefits`, `industry`; no equity | n/a |
+
+`--role r --remote` and `--role r` are **different listings**, not a filter
+on one: `/role/r/software-engineer` reported 1,881 jobs and
+`/role/software-engineer` a different set.
+
+### The two sources agree, and that is checked
+
+A landing page carries a normalised Apollo cache in `__NEXT_DATA__`; a job
+page carries no `__NEXT_DATA__` at all and one schema.org `JobPosting`
+instead. They are different applications, so `data_source` records which one
+a row came from (`apollo` / `jsonld`) and `diff_runs.py` reports a change
+that comes with a source change as `source_changed` rather than as a real
+one.
+
+Where both publish a salary they agree — job 4697947 is
+`$100k – $180k` on the listing and `100000`–`180000` USD in the detail
+page's `baseSalary`. The offline suite pins that.
+
+---
+
+## What is gated and what is not
+
+**Gating is per ROUTE, not per site.** Measured 2026-09-17, three requests
+each:
+
+| route | datacenter (Hetzner, Helsinki) | 2captcha residential US exit |
+|---|---|---|
+| `/` | 403 | **200** |
+| `/jobs` | 403 | **200** |
+| `/role/{r}`, `/role/r/{r}`, `/role/l/{r}/{loc}` | 403 | **200** |
+| `/jobs/{id}-{slug}` | 403 | **200** |
+| `/company/{slug}` | 403 | **403** |
+| `robots.txt` | 403 | 200 |
+
+From a datacenter address **everything** is refused, including `robots.txt`,
+and no browser gets past it: headless and headful Chromium both sat on
+Cloudflare's "Just a moment..." for the full wait, 0 of 1 each.
+
+From a residential exit every route this scraper reads answered 200 every
+time — and `/company/{slug}` still answered 403, to plain HTTP **and** to a
+real Chromium on that same exit. There is no `--mode company`, because there
+is nothing this repo can honestly offer for it.
+
+### Two refusal skins, and a marker that lies
+
+Wellfound refuses in two shapes, both HTTP 403:
+
+* **"Security Check | Wellfound"** — a branded page with the site's own
+  styling, served to a plain HTTP client. Its name is in the markup four
+  times, so a title check calls it a real page.
+* **"Just a moment..."** — Cloudflare's interstitial, served to a real
+  browser from the same address.
+
+Both carry `_cf_chl_opt`. **Neither carries `challenges.cloudflare.com` or
+`cf-turnstile`** — and every *good* page does, because Wellfound loads
+Cloudflare Turnstile as part of its own application: it ships the api.js
+script, publishes `CLOUDFLARE_TURNSTILE_SITE_KEY` in its page config, and
+renders a widget into `#turnstile_widget` when one of its own XHRs is
+challenged. Counted on the captures: 1 occurrence of
+`challenges.cloudflare.com` and 6 of `turnstile` on every served landing
+page, 0 and 0 on both refusals.
+
+So the obvious marker fires on good pages and misses the real refusal. This
+repo does not use it. `product_parser.BOT_CHALLENGE_MARKERS` carries the
+counts beside the set, and the offline suite fails the build if the marker
+is reintroduced.
+
+---
+
+## Do you need to pay for anything?
+
+**You need a residential exit. Nothing else is required.**
+
+That is the whole answer for the three modes this scraper has. A 2Captcha
+residential proxy is one variable in `.env`:
+
+```
+WELLFOUND_PROXY=http://{user}:{password}@na.proxy.2captcha.com:2334
+```
+
+What the other paid products buy here:
+
+* **Scraping Browser API** (`--cdp-endpoint`) — a browser you do not host,
+  with its own residential exit and an auto-solve extension. Useful when you
+  have no browser infrastructure, or want a persistent cookie profile.
+* **Captcha solving** (`--twocaptcha-key`) — only reached if a challenge is
+  actually rendered. On the routes above, a residential exit removes the
+  challenge entirely, so most runs never touch this path.
+* **Fingerprints** (`--fingerprint`) — a consistent device identity across
+  runs. Not needed for anything measured here.
+
+### About the captcha, precisely
+
+Cloudflare's managed challenge **is** solvable — 2Captcha builds it as
+`TurnstileTaskProxyless` — but the task needs `sitekey`, `action`, `cData`
+and `chlPageData`, and a Cloudflare challenge page publishes **none of
+them**: it calls `turnstile.render()` once and keeps nothing. So no static
+read of the HTML can produce a solvable task, however careful.
+
+This repo installs an init script on the browser context, before any page
+script runs, that hooks `turnstile.render` and records its arguments. If a
+sitekey is still not captured the run **refuses to build a task** rather
+than paying for one the API will reject.
+
+The site's own widget is a different thing and is solvable from a static
+read, because its sitekey is published in the page config.
+
+---
+
+## Engines
+
+| engine | notes |
+|---|---|
+| `playwright_scraper.py` | **primary.** Full `--concurrency`, remote CDP. |
+| `selenium_scraper.py` | cannot use an authenticated remote CDP endpoint — `debuggerAddress` takes a bare `host:port` with nowhere for a password. `--proxy-server` cannot authenticate either, so credentials are stripped and a warning printed. |
+| `puppeteer_scraper.py` | pyppeteer is effectively unmaintained; its own README points at Playwright. |
+| `scraper_api_client.py` | no local browser at all. Its own exits are datacenter addresses, so pass `--cdp-url`. |
+
+All three browser engines agree on exit codes, run status, and whether a run
+crashes or spends money — a shared `finish_run()` keeps that mapping from
+drifting, and the offline suite asserts their flag sets against each other in
+both directions.
+
+**Install exactly one engine.** Playwright and pyppeteer declare mutually
+unsatisfiable pins, and pyppeteer and selenium collide on `urllib3`. Use a
+virtualenv per engine if you need more than one.
+
+---
+
+## Pagination, and the trap in it
+
+A landing page states its own arithmetic, and **it counts companies, not
+jobs**:
+
+```
+perPage: 20   pageCount: 47   totalStartupCount: 923   totalJobCount: 1881
+```
+
+Forty-seven pages of twenty **companies**, carrying between 32 and 45 job
+rows each. Dividing 1,881 by 47 gives an answer that is wrong for every
+page, which is why the sidecar records `total_jobs`, `total_companies`,
+`per_page` and `pages_available` rather than leaving you to infer them.
+
+**Asking past the last page does not fail — it repeats.** `?page=48` of a
+47-page listing answers HTTP 200 carrying page 1's rows again. A run that
+trusted its own request would re-collect page 1 for as long as it was asked
+to and report success. Two defences:
+
+1. the run **plans** against `pageCount` and never asks past it;
+2. the response states which page the server actually used, inside the
+   Apollo cache key, and a mismatch stops the run with
+   `stop_reason=page_echo_mismatch`.
+
+**`/jobs` is not addressable at all.** `?page=2` on it returns the identical
+46 job ids as page 1, so `--pages 5` in that mode fetches one page and says
+`single_page_listing` rather than reporting a complete five-page run holding
+one page five times.
+
+---
+
+## Traps that look like bugs
+
+* **`compensation` is one rendered string**, not numbers: `$100k – $180k •
+  0.05% – 0.25%`. The `•` separates pay from equity and **either side may be
+  absent** — 9 of 312 measured values are `No equity` alone and 2 are an
+  equity range with no pay. `k` is 1e3 and **`L` is the Indian lakh, 1e5**;
+  `₹30L – ₹80L` is 3,000,000–8,000,000, not 30–80.
+* **`salary_period` is null on a landing row.** `$140k` reads as a year, but
+  the page does not say so. The detail page does, and that is the only place
+  the column is filled.
+* **`has_equity: false` is not the same as `null`.** False means the listing
+  printed "No equity". Null means it said nothing.
+* **A "page" is twenty companies.** See above.
+* **`remote_kind` is null on 231 of 432 records.** The listing did not
+  configure one; `remote` is the field to trust.
+* **`/company/{slug}` is gated** even from a residential exit. Not a bug in
+  your proxy.
+* **`angel.co` redirects here** but its old routes no longer exist, so the
+  scraper refuses that host with that reason rather than "not a Wellfound
+  site".
+
+---
+
+## Output contract
+
+Exit codes: `0` ok · `1` crash · `2` bad usage · `3` blocked · `4` zero jobs
+· `5` remote API error · `6` partial.
+
+* **A run that finds nothing writes nothing** — last night's good output is
+  never replaced with `[]`. `--allow-empty` opts out.
+* **Blocked ≠ empty ≠ partial**, three distinct exit codes, and
+  `<out>.meta.json` records `status`, `stop_reason` and *which* pages failed
+  by number.
+* **A failed run writes no sidecar**, so a `"failed"` file never sits beside
+  good data.
+* **An empty CSV still carries its header.**
+* `diff_runs.py` refuses to compare runs that are not both `complete`, or
+  whose modes differ.
+
+---
+
+## Configuration
+
+Credentials live in `.env` next to the scripts, never on a command line — a
+secret in `argv` is readable by anything that can run `ps`. Copy
+[`.env.example`](.env.example) and fill in what you use. Precedence, highest
+first: **explicit flag → exported environment variable → `.env` → default.**
+
+```bash
+python3 env_config.py     # prints what was picked up, without any secret
+```
+
+---
+
+## Development
+
+```bash
+python3 smoke_test.py -v     # the offline suite; no engine library needed
+pytest                       # same checks, through tests/test_smoke.py
+```
+
+The suite passes with no engine installed and *records* the skips, because
+"skipped, engine absent" reads identically to a real import error. CI
+installs each engine in its own venv and fails if that engine's group
+reports a skip.
+
+Contributions: [CONTRIBUTING.md](CONTRIBUTING.md) ·
+Security: [SECURITY.md](SECURITY.md) ·
+Changes: [CHANGELOG.md](CHANGELOG.md)
+
+## Licence
+
+MIT. This is an independent tool; it is not affiliated with or endorsed by
+Wellfound or AngelList. Scraping is your responsibility — check the site's
+terms and `robots.txt` (this scraper reads only routes `robots.txt` allows)
+and keep your request rate civil.

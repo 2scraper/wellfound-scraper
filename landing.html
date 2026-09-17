@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2scraper — Wellfound Scraper</title>
+<meta name="description" content="Open-source Wellfound (AngelList Talent) job scraper — three engines, JSON/CSV, startup job listings with salary and equity ranges, company size and badges, and full job descriptions.">
+<style>
+  :root{
+    --bg:#0F1419;
+    --panel:#171D24;
+    --panel-2:#131920;
+    --line:#26303B;
+    --text:#D8DEE6;
+    --muted:#8792A0;
+    --accent:#4A9EE8;
+    --grade:#37C978;
+    --warn:#E8B94A;
+    --mono:'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans:'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); line-height:1.6;}
+  a{color:var(--accent); text-decoration:none;}
+  a:hover{text-decoration:underline;}
+  .wrap{max-width:1000px; margin:0 auto; padding:0 24px;}
+
+  header.topbar{border-bottom:1px solid var(--line); background:var(--panel-2);}
+  .topbar-inner{display:flex; align-items:center; justify-content:space-between;
+                padding:16px 24px; max-width:1000px; margin:0 auto; gap:16px; flex-wrap:wrap;}
+  .logo{font-family:var(--mono); font-weight:700; font-size:14px; letter-spacing:.05em;}
+  .logo span{color:var(--muted);}
+  nav a{color:var(--muted); font-family:var(--mono); font-size:12.5px; margin-left:20px;}
+  nav a:hover{color:var(--accent);}
+
+  .hero{padding:72px 0 56px; border-bottom:1px solid var(--line);}
+  .hero h1{font-size:40px; line-height:1.15; margin:0 0 18px; letter-spacing:-.02em;}
+  .hero .lede{font-size:18px; color:var(--text); max-width:70ch; margin:0 0 14px;}
+  .hero .sub{font-size:16px; color:var(--muted); max-width:70ch; margin:0 0 28px;}
+  .cta{display:inline-block; background:var(--accent); color:#06121D; font-weight:600;
+       padding:11px 20px; border-radius:6px; font-size:15px;}
+  .cta:hover{text-decoration:none; filter:brightness(1.08);}
+  .cta.secondary{background:transparent; color:var(--text); border:1px solid var(--line); margin-left:10px;}
+
+  section{padding:52px 0; border-bottom:1px solid var(--line);}
+  h2{font-size:25px; margin:0 0 16px; letter-spacing:-.01em;}
+  h3{font-size:17px; margin:26px 0 8px;}
+  p{max-width:74ch;}
+  .muted{color:var(--muted);}
+
+  .callout{background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--grade);
+           border-radius:6px; padding:20px 22px; margin:22px 0; max-width:78ch;}
+  .callout.warn{border-left-color:var(--warn);}
+  .callout p:last-child{margin-bottom:0;}
+
+  pre{background:var(--panel-2); border:1px solid var(--line); border-radius:6px;
+      padding:16px 18px; overflow-x:auto; font-family:var(--mono); font-size:13px;
+      color:var(--text); line-height:1.5;}
+  code{font-family:var(--mono); font-size:.92em; color:var(--text);}
+  p code, li code, td code{background:var(--panel); border:1px solid var(--line);
+                           border-radius:4px; padding:1px 5px;}
+
+  .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:16px; margin-top:22px;}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:18px 20px;}
+  .card h3{margin:0 0 8px; font-size:15px;}
+  .card p{margin:0; font-size:14px; color:var(--muted);}
+
+  .table-scroll{overflow-x:auto; margin-top:18px;}
+  table{border-collapse:collapse; width:100%; min-width:520px; font-size:14.5px;}
+  th,td{text-align:left; padding:11px 14px; border-bottom:1px solid var(--line); vertical-align:top;}
+  th{color:var(--muted); font-weight:600; font-size:12.5px; text-transform:uppercase; letter-spacing:.04em;}
+  .yes{color:var(--grade); font-weight:600;}
+  .no{color:var(--warn); font-weight:600;}
+
+  ul{max-width:76ch;}
+  li{margin-bottom:7px;}
+
+  footer{padding:36px 0 56px; color:var(--muted); font-size:14px;}
+  footer p{max-width:74ch;}
+
+  @media (max-width:640px){
+    .hero{padding:48px 0 40px;}
+    .hero h1{font-size:30px;}
+    .cta.secondary{margin-left:0; margin-top:10px;}
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="logo">2scraper<span> / wellfound-scraper</span></div>
+    <nav>
+      <a href="#measured">What was measured</a>
+      <a href="#traps">Site behaviour</a>
+      <a href="#products">2Captcha</a>
+      <a href="https://github.com/2scraper/wellfound-scraper">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="hero">
+  <div class="wrap">
+    <h1>Wellfound Scraper</h1>
+    <p class="lede">Open-source Wellfound (AngelList Talent) job scraper for wellfound.com —
+      three engines, your own infrastructure, and 2Captcha's paid products only where they
+      are actually needed.</p>
+    <p class="sub">Startup job listings: title, company, company size and badges, salary
+      <em>and</em> equity ranges, remote configuration, years of experience, posting date and
+      the full job description — into JSON or CSV.</p>
+    <a class="cta" href="https://github.com/2scraper/wellfound-scraper">View source on GitHub</a>
+    <a class="cta secondary" href="https://github.com/2scraper/wellfound-scraper#readme">Read the README</a>
+  </div>
+</div>
+
+<section id="measured">
+  <div class="wrap">
+    <h2>What was actually measured</h2>
+
+    <div class="callout">
+      <p><strong>You need one thing: a residential exit. Nothing else.</strong></p>
+      <p>Wellfound refuses a datacenter address on <strong>every route</strong>,
+        <code>robots.txt</code> included. Measured on 2026-09-17 from a Hetzner VPS: HTTP
+        <strong>403</strong> to plain HTTP, to headless Chromium and to headful Chromium alike.
+        From a 2Captcha residential US exit, the same machine got HTTP <strong>200</strong> on
+        <code>/</code>, <code>/jobs</code>, every <code>/role/…</code> shape and every job page
+        — three times out of three.</p>
+      <p>Say that plainly instead of selling around it. A residential proxy is the one product
+        this site actually requires, and it is one line in a <code>.env</code> file. Captcha
+        solving, fingerprints and a hosted browser are all wired in, all optional, and most
+        runs never reach them — because from a residential exit there is no challenge left
+        to solve.</p>
+    </div>
+
+    <h2>What you get</h2>
+    <ul>
+      <li>Free, open-source scraper, one script per engine — <strong>Playwright</strong>
+        (primary), <strong>Selenium</strong> and <strong>Puppeteer</strong> (via pyppeteer),
+        plus a browserless client for 2Captcha's Scraper API. All three browser engines were
+        run live against the same listing and returned <strong>byte-identical rows</strong>:
+        the same 52 jobs, the same 38 columns, the same order.</li>
+      <li>Three modes: a <strong>role</strong> landing page (the rich one, paginated), the
+        <strong>jobs</strong> discovery feed, or a single <strong>job</strong> page.</li>
+      <li>Reads Wellfound's own embedded payloads — the Next.js Apollo cache on a listing, the
+        schema.org <code>JobPosting</code> on a job page — so there is no fragile DOM scraping
+        anywhere in the primary path.</li>
+      <li>JSON and CSV export, a documented 38-column <code>JobPosting</code> schema, and a
+        <code>.meta.json</code> sidecar on every run recording status, pages completed and
+        Wellfound's own arithmetic.</li>
+      <li>349 offline checks, with fixtures cut from real captures and verified to parse
+        identically to the untrimmed originals.</li>
+      <li>Optional 2Captcha integration, wired in but never required beyond the exit.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="traps">
+  <div class="wrap">
+    <h2>Four things about Wellfound worth knowing before you start</h2>
+
+    <h3>A &ldquo;page&rdquo; is twenty companies, not twenty jobs</h3>
+    <p><code>/role/r/software-engineer</code> reported <code>perPage: 20</code>,
+      <code>pageCount: 47</code>, <code>totalStartupCount: 923</code> and
+      <code>totalJobCount: 1881</code> &mdash; and its pages carried between 32 and 45 job rows
+      each. Dividing 1,881 by 47 gives an answer that is wrong for every page, so the sidecar
+      records both denominators.</p>
+
+    <h3>Asking past the last page does not fail &mdash; it repeats</h3>
+    <p><code>?page=48</code> of a 47-page listing answers HTTP 200 carrying page 1's rows
+      again. A run that trusted its own request would re-collect page 1 for as long as it was
+      asked to and report success. This scraper plans against the site's stated
+      <code>pageCount</code>, and reads back which page the server actually answered with.</p>
+
+    <h3>Pay is one rendered string, and the obvious parse is wrong three ways</h3>
+    <p><code>$180k &ndash; $200k &bull; 0.5% &ndash; 1.0%</code> splits salary from equity on a
+      bullet &mdash; but either side may be missing, so 9 of 312 measured values are
+      <code>No equity</code> alone and 2 are an equity range with no salary at all.
+      <code>L</code> is the Indian lakh: <code>&#8377;30L &ndash; &#8377;80L</code> is 3,000,000
+      to 8,000,000, not 30 to 80. And <code>No equity</code> is a statement the listing made,
+      not a missing value.</p>
+
+    <h3>Gating is per route</h3>
+    <p>Role pages, the jobs feed and individual job pages are all served to a residential exit.
+      Company profile pages are <strong>not</strong> &mdash; they answered 403 to plain HTTP and
+      to a real browser on that same exit, three times each. This scraper has no mode for them,
+      because there is nothing it could honestly offer.</p>
+  </div>
+</section>
+
+<section id="products">
+  <div class="wrap">
+    <h2>2Captcha products, when you want them</h2>
+    <table>
+      <thead><tr><th>Product</th><th>What it&rsquo;s for on this site</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Residential proxies</strong></td>
+          <td>The one thing this site requires. A datacenter address gets HTTP 403 on every
+            route, to every client tried.</td>
+        </tr>
+        <tr>
+          <td><strong>Scraping Browser API</strong></td>
+          <td>A remote browser you do not run or patch, with a chosen exit country and a
+            persistent cookie profile.</td>
+        </tr>
+        <tr>
+          <td><strong>Captcha solving</strong></td>
+          <td>Cloudflare&rsquo;s managed challenge, if you meet one. It publishes no sitekey
+            &mdash; it calls <code>turnstile.render()</code> once and keeps nothing &mdash; so
+            this scraper hooks that call before any page script runs, and refuses to buy a task
+            it could not build properly.</td>
+        </tr>
+        <tr>
+          <td><strong>Fingerprints</strong></td>
+          <td>A consistent device identity for a local browser.</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>One key, four separately-billed products:
+      <a href="https://2captcha.com">2captcha.com</a></p>
+
+    <h2>What it deliberately does not do</h2>
+    <p>It reads only routes <code>robots.txt</code> allows. It never submits Wellfound&rsquo;s
+      apply or sign-up forms &mdash; an application filed by a scraper is a false record about a
+      real person and a real company. There is no mode for candidate profiles
+      (<code>/u/</code>, which <code>robots.txt</code> disallows), and no column anywhere for an
+      individual&rsquo;s details. It defaults to a 2-second delay between pages.</p>
+
+    <p class="foot">MIT licensed. Not affiliated with or endorsed by Wellfound or AngelList.</p>
+  </div>
+</section>
+
+</body>
+</html>

@@ -202,9 +202,15 @@ beside it is a guess wearing a fact's clothes:
 
 | step | result |
 |---|---|
-| the hook captured the parameters | **yes** — all four, on every attempt |
+| the hook captured the parameters | **yes** — `sitekey`, `action=managed`, `cData`, `chlPageData`, on every attempt |
 | 2Captcha returned a token | **yes** — `TurnstileTaskProxyless`, 5–20 s |
-| Cloudflare accepted it | **no** — the page stayed blocked, 3 tokens, 3 refusals |
+| Cloudflare accepted it | **no** — the page stayed blocked |
+| *control:* the block clears by itself | **no** — 0 of 8 reloads in the same session |
+
+The control is what makes that a finding rather than an anecdote: a block
+that expired on its own would produce the same observation as a token that
+worked. It does not expire — eight consecutive reloads of the same page in
+the same session returned HTTP 403 every time.
 
 So on this site, from a scored address, a solved token did not get in
 during testing. That is a statement about **this page and this exit**, not

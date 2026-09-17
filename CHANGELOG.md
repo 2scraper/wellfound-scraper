@@ -24,7 +24,9 @@ offline checks v0.1.0 shipped with.
 > captured and solved correctly and Cloudflare does not accept it. If you
 > read v0.1.0's README and bought solving to get past the block, that is
 > not what will get you in; a residential exit is, and it costs less. The
-> table under "About the captcha, precisely" now carries the numbers.
+> table under "About the captcha, precisely" now carries the numbers,
+> including the control that makes them mean something: the block does
+> not expire on its own — 0 of 8 reloads in the same session cleared it.
 
 ### Fixed
 

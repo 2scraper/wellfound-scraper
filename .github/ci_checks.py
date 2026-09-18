@@ -91,12 +91,46 @@ HEX32_ALLOWED = ("sha", "hash", "nonce", "example", "md5", "digest",
 SCANNED_SUFFIXES = (".py", ".md", ".txt", ".yml", ".yaml", ".example")
 
 
+# Directories that are never this repo's own source. Named ones first, then
+# the STRUCTURAL test, which is the one that matters.
+_SKIP_NAMES = {".git", "__pycache__", ".pytest_cache", ".mypy_cache",
+               ".ruff_cache", "node_modules", "build", "dist",
+               ".venv", "venv", "env", ".tox", ".eggs"}
+
+
+def _is_virtualenv(path):
+    """A directory holding `pyvenv.cfg` is a virtualenv, whatever it is called.
+
+    The name list above cannot be the whole answer, and that was measured
+    rather than reasoned: a fresh clone of this repo, set up exactly the way
+    the README says, put its virtualenv in the working tree and the scan
+    walked into pip's vendored code and flagged a 32-hex string in
+    `_elffile.py` as key-shaped. The run was correct about the string and
+    wrong about the file, and a guard people have to argue with is one they
+    learn to suppress (CLAUDE.md §22).
+
+    Structural rather than by name, for the same reason a parser anchors on a
+    URL pattern instead of a CSS class: `venv`, `.venv`, `.v`, `env39` and
+    whatever else someone types are all the same thing, and only the marker
+    file says so.
+    """
+    return (path / "pyvenv.cfg").is_file()
+
+
 def scanned_files():
+    # Walked top-down so a virtualenv is pruned once, at its root, instead of
+    # being re-tested for every file inside it.
+    skip_roots = []
     for path in sorted(REPO.rglob("*")):
-        if not path.is_file() or path.suffix not in SCANNED_SUFFIXES:
+        if path.is_dir():
+            if path.name in _SKIP_NAMES or _is_virtualenv(path):
+                skip_roots.append(path)
             continue
-        if any(part in {".git", "__pycache__", ".venv", "venv"}
-               for part in path.parts):
+        if path.suffix not in SCANNED_SUFFIXES:
+            continue
+        if any(part in _SKIP_NAMES for part in path.parts):
+            continue
+        if any(root in path.parents for root in skip_roots):
             continue
         yield path
 

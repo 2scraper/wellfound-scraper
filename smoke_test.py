@@ -38,6 +38,7 @@ import os
 import re
 import subprocess
 import sys
+import pathlib
 import tempfile
 from dataclasses import asdict, fields
 
@@ -1287,6 +1288,56 @@ BANNED_WORDING = (
     "cloud browser", "antidetect browser", "2scraper Antidetect Browser",
     "gate.2prx.com", "ANTIDETECT_LOCAL_API",
 )
+
+
+def check_the_credential_scan_survives_a_venv_in_the_tree():
+    """A guard people have to argue with is one they learn to suppress.
+
+    Found by cloning this repo the way a stranger does and following the
+    README: `python3 -m venv` puts a virtualenv in the working tree, and the
+    credential scan walked into pip's vendored code and flagged a 32-hex
+    string in `_elffile.py` as key-shaped. Correct about the string, wrong
+    about the file, and the first thing a new user would have seen.
+
+    The fix is structural rather than a longer list of names — a directory
+    holding `pyvenv.cfg` is a virtualenv whatever it is called — and this
+    pins BOTH halves, because narrowing a credential scan is exactly how one
+    stops catching things. CLAUDE.md §22 records a sibling repo whose scan
+    caught an UNTRACKED `.env.bak` holding a live key, so scanning must not
+    be reduced to tracked files.
+    """
+    import importlib.util
+    script = os.path.join(HERE, ".github", "ci_checks.py")
+    if not os.path.exists(script):
+        skip("credential-scan", "no .github/ in this tree (the Docker image)")
+        return
+    spec = importlib.util.spec_from_file_location("_ci_checks", script)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    check("the scan knows a virtualenv structurally, not by name",
+          hasattr(mod, "_is_virtualenv"))
+    if not hasattr(mod, "_is_virtualenv"):
+        return
+
+    with tempfile.TemporaryDirectory() as tmp:
+        odd = os.path.join(tmp, "whatever-i-called-it")
+        os.makedirs(os.path.join(odd, "lib"))
+        open(os.path.join(odd, "pyvenv.cfg"), "w").write("home = /usr\n")
+        check("...so a venv under any name is recognised",
+              mod._is_virtualenv(pathlib.Path(odd)))
+        plain = os.path.join(tmp, "src")
+        os.makedirs(plain)
+        check("...and an ordinary directory is not",
+              not mod._is_virtualenv(pathlib.Path(plain)))
+
+    # The other half: it must still walk files git does not track, because a
+    # key pasted into a scratch file is the case this scan exists for.
+    scanned = [str(p) for p in mod.scanned_files()]
+    check("the scan still reads this repo's own files", len(scanned) > 20,
+          "%d file(s)" % len(scanned))
+    check("...and is not limited to git's index",
+          "git ls-files" not in open(script, encoding="utf-8").read())
 
 
 def check_banned_wording():

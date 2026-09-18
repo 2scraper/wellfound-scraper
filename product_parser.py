@@ -1079,8 +1079,13 @@ def site_turnstile_sitekey(html: str) -> Optional[str]:
 
     This is the answer to CLAUDE.md §18's real question — not "did we meet
     a captcha" but "is one configured, and would we recognise it". One is:
-    every served page carries this key, and the site renders a widget with
-    it into `#turnstile_widget` when its own fetch wrapper is challenged.
+    the NEXT.JS routes carry this key — the landings and the /jobs feed —
+    and the site renders a widget with it into `#turnstile_widget` when its
+    own fetch wrapper is challenged. Counted over 17 served captures on
+    2026-09-18: 14 load the Turnstile script and 12 publish the key. The
+    ones that do NOT are the routes served by a different stack — the job
+    page and the home page load neither, and login and signup load the
+    script but publish no key in their config.
     That widget IS solvable from a static read, because the sitekey is
     published — unlike Cloudflare's own interstitial, which publishes none
     and needs the `turnstile.render` interception hook §19 describes.

@@ -135,31 +135,52 @@ time — and `/company/{slug}` still answered 403, to plain HTTP **and** to a
 real Chromium on that same exit. There is no `--mode company`, because there
 is nothing this repo can honestly offer for it.
 
-### Two refusal skins, and a marker that lies
+### Which captcha is on this site
 
-Wellfound refuses in two shapes, both HTTP 403:
+**One vendor, and only one: Cloudflare.** Counted across 16 served pages and
+4 real refusals on 2026-09-18 — zero occurrences of reCAPTCHA (v2, v3 or
+Enterprise), hCaptcha, DataDome, PerimeterX, Incapsula, Kasada, AWS WAF,
+Arkose/FunCaptcha or GeeTest. Not on the listings, not on the job pages, and
+not on the login or sign-up pages either.
 
-* **"Security Check | Wellfound"** — a branded page with the site's own
-  styling, served to a plain HTTP client. Its name is in the markup four
-  times, so a title check calls it a real page.
-* **"Just a moment..."** — Cloudflare's interstitial, served to a real
-  browser from the same address.
+What there is, is **two different Turnstiles**, and telling them apart is the
+whole story:
 
-Both carry `_cf_chl_opt`. **Neither carries `challenges.cloudflare.com` or
-`cf-turnstile`** — and every *good* page does, because Wellfound loads
-Cloudflare Turnstile as part of its own application: it ships the api.js
-script, publishes `CLOUDFLARE_TURNSTILE_SITE_KEY` in its page config, and
-renders a widget into `#turnstile_widget` when one of its own XHRs is
-challenged. Counted on the captures: 1 occurrence of
-`challenges.cloudflare.com` and 6 of `turnstile` on every served landing
-page, 0 and 0 on both refusals.
+| | sitekey | where it lives | solvable from the markup? |
+|---|---|---|---|
+| **Wellfound's own** | `0x4AAAAAAAgpA-Qx7SsJOW-g` | published in the page config of the Next.js routes — 12 of 17 served captures | **yes**, the key is right there |
+| **Cloudflare's challenge** | `0x4AAAAAAADnPIDROrmt1Wwj` | passed to `turnstile.render()` on the refusal and kept nowhere | **no** — it must be intercepted |
 
-So the obvious marker fires on good pages and misses the real refusal. This
-repo does not use it. `product_parser.BOT_CHALLENGE_MARKERS` carries the
-counts beside the set, and the offline suite fails the build if the marker
-is reintroduced.
+Wellfound's own widget is wired to its fetch layer: the site loads
+`challenges.cloudflare.com/turnstile/v0/api.js` and renders into
+`#turnstile_widget` when one of its own XHRs is challenged. It has not been
+observed firing on a listing fetch.
 
----
+Cloudflare's is what a scored address meets, and it arrives in **two skins
+that are not equally solvable**:
+
+| skin | who gets it | `_cf_chl_opt` | a widget on it |
+|---|---|---|---|
+| **"Security Check \| Wellfound"** — branded, the site's own styling | a plain HTTP client | 7× | **none at all** |
+| **"Just a moment..."** | a real browser | 7× | yes, 1× |
+
+The branded one has nothing on it for any solver at any price, which is the
+only honest use of the word *unsolvable* — it describes that page, not the
+product. The browser one does carry a widget, and that is the one this
+scraper intercepts and solves (and whose token Cloudflare then refused — see
+below).
+
+### The marker that lies
+
+`challenges.cloudflare.com` is on **14 of 16 served pages** and on only 1 of
+4 refusals, because it is the site's own loader. `cf-turnstile` is on no
+served page and on only the browser skin. So the obvious marker fires on
+good pages and misses three refusals out of four.
+
+`product_parser.BOT_CHALLENGE_MARKERS` uses the challenge's own bootstrap
+vocabulary instead — `_cf_chl_opt`, `__cf_chl`, `orchestrate/chl_page` — each
+**0 on every served page and present on all four refusals**. The offline
+suite fails the build if the inverted marker is reintroduced.
 
 ## Do you need to pay for anything?
 

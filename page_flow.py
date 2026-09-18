@@ -138,9 +138,19 @@ STATE_POLICY = {
     # Cloudflare. On this site the two refusal skins — the branded
     # "Security Check | Wellfound" 403 and the "Just a moment..."
     # interstitial — are ONE state, because they are the same decision by the
-    # same vendor and both respond to the same two moves: a different exit,
-    # or a solved Turnstile token. Splitting them would imply a difference
-    # this site does not have.
+    # same vendor. They are NOT identical, though, and the difference was
+    # measured on 2026-09-18 rather than assumed: the branded no-JS skin
+    # carries NO widget at all — 0 references to
+    # `challenges.cloudflare.com/turnstile` and 0 to `cf-turnstile`, against
+    # `_cf_chl_opt` 7 times — while the browser's "Just a moment..." skin
+    # carries one. So there is literally nothing to solve on the first, and
+    # something to solve on the second.
+    #
+    # They stay ONE state anyway, and that is the point of keeping them
+    # together: both answer to a different exit, and the solve path already
+    # refuses to build a task when no sitekey was captured, which is exactly
+    # what happens on the widget-less skin. Splitting the state would add a
+    # branch that changes nothing a caller does.
     #
     # `solve` is True because the challenge really is a test, and the engines
     # can build a task for it once `TURNSTILE_INTERCEPT_JS` has captured the

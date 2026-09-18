@@ -547,6 +547,41 @@ def check_markers_do_not_match_a_page_wellfound_serves():
           P.detect_bot_challenge(INTERSTITIAL_HTML), "cloudflare")
 
 
+def check_only_one_refusal_skin_carries_a_widget():
+    """The two refusals are the same vendor and NOT the same page.
+
+    Counted 2026-09-18 across four real refusals:
+
+        branded "Security Check | Wellfound"   _cf_chl_opt 7x, turnstile 0x
+        "Just a moment..." (browser)           _cf_chl_opt 7x, turnstile 1x
+
+    So the no-JS skin carries **no widget at all**, and that is the precise
+    sense in which a page is unsolvable (CLAUDE.md §19: "unsolvable" is a
+    property of a PAGE with nothing on it, never of a vendor). Paying for a
+    task built from a page like that buys an ERROR_CAPTCHA_UNSOLVABLE, which
+    is why the engines refuse to build one without a captured sitekey.
+
+    Both must still classify as blocked, because a caller's move is the same
+    either way — a different exit.
+    """
+    import product_parser as P
+    for label, html in (("branded", BRANDED_BLOCK_HTML),
+                        ("interstitial", INTERSTITIAL_HTML)):
+        equal("%s refusal is detected as Cloudflare" % label,
+              P.detect_bot_challenge(html), "cloudflare")
+        equal("%s refusal is state=blocked" % label,
+              P.detect_page_state(html, 403, mode="role"), "blocked")
+        # Neither publishes a sitekey a static read could use: Cloudflare
+        # calls turnstile.render() once and keeps nothing.
+        equal("%s refusal publishes no usable sitekey" % label,
+              P.site_turnstile_sitekey(html), None)
+    # The branded skin specifically has nothing on it at all.
+    for marker in ("challenges.cloudflare.com", "cf-turnstile",
+                   "turnstile.render"):
+        check("the branded refusal carries no %r" % marker,
+              marker not in BRANDED_BLOCK_HTML)
+
+
 def check_the_sites_own_turnstile_is_recognised_as_configured():
     """"Did we meet a captcha" is the wrong question; "is one configured, and
     would we recognise it" is the right one (CLAUDE.md §18).

@@ -81,7 +81,7 @@ from captcha_solver import (detect_recaptcha_v3, detect_recaptcha_in_page,
                             RECAPTCHA_DISCOVERY_JS, detect_turnstile,
                             wait_for_turnstile, TURNSTILE_INTERCEPT_JS,
                             TURNSTILE_INJECT_JS, turnstile_task_for)
-from product_parser import (MODES, DEFAULT_MODE, category_from_url,
+from product_parser import (MODES, DEFAULT_MODE, FEED_URL, category_from_url,
                             detect_bot_challenge, is_supported_url,
                             mode_for_url, page_url, parse_detail,
                             parse_listing_page, references_own_assets,
@@ -1247,7 +1247,7 @@ def parse_args():
         logger.info("Built the listing URL from --role/--location: %s", args.url)
 
     if not args.url and args.mode == "jobs":
-        args.url = "https://wellfound.com/jobs"
+        args.url = FEED_URL
 
     if not args.url:
         p.error("no --url given and no --role: pass a wellfound.com URL, or "

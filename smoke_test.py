@@ -766,6 +766,54 @@ def check_exit_codes():
           "no_new_products" in O.COMPLETE_STOP_REASONS)
 
 
+def check_a_partial_run_says_so_and_still_writes():
+    """§9: blocked != empty != partial, and all three are distinct exit codes.
+
+    Only the CONSTANT was pinned — `EXIT_PARTIAL == 6` — never the behaviour,
+    which is the half a consumer branches on. A partial run has to do four
+    things at once and getting any of them wrong is silent: keep the rows it
+    did gather, say `partial` rather than `complete`, exit 6, and record
+    WHICH pages are missing by number.
+
+    That last one is the reason `pages_failed` is a list: a count stops being
+    a description once pages can be fetched independently and page 3 can fail
+    while 4 and 5 succeed.
+    """
+    from output_writer import (finish_run, JobPosting, EXIT_PARTIAL,
+                               COMPLETE_STOP_REASONS)
+    rows = [JobPosting(sku=str(i), title="t", url="u", page=1, position=i)
+            for i in range(1, 6)]
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, "run")
+        code = finish_run(rows, out, "json", False, blocked=False,
+                          stop_reason="blocked_cloudflare", pages_requested=3,
+                          pages_completed=1, pages_failed=[2, 3], mode="role",
+                          source="wellfound.com", start_url="u", final_url="u")
+        equal("a partial run exits 6", code, EXIT_PARTIAL)
+        meta = json.load(open(out + ".meta.json", encoding="utf-8"))
+        equal("...and says partial, not complete", meta["status"], "partial")
+        equal("...and names WHICH pages are missing, by number",
+              meta["pages_failed"], [2, 3])
+        equal("...and still writes the rows it did gather",
+              len(json.load(open(out + ".json", encoding="utf-8"))), 5)
+        check("...and its stop_reason is not one of the complete ones",
+              meta["stop_reason"] not in COMPLETE_STOP_REASONS,
+              meta["stop_reason"])
+
+    # The same call with every page fetched is COMPLETE and exit 0 — the
+    # control, without which the check above would pass on a function that
+    # always says partial.
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, "run")
+        code = finish_run(rows, out, "json", False, blocked=False,
+                          stop_reason="completed", pages_requested=1,
+                          pages_completed=1, pages_failed=[], mode="role",
+                          source="wellfound.com", start_url="u", final_url="u")
+        equal("a complete run exits 0", code, 0)
+        meta = json.load(open(out + ".meta.json", encoding="utf-8"))
+        equal("...and says complete", meta["status"], "complete")
+
+
 def check_a_run_that_finds_nothing_writes_nothing():
     """Never replace last night's good output with []."""
     from output_writer import save

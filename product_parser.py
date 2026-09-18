@@ -170,6 +170,12 @@ BASE_URL = "https://" + CANONICAL_HOST
 # a typo).
 LEGACY_HOSTS = ("angel.co", "www.angel.co", "angellist.com", "www.angellist.com")
 
+# The one address `--mode jobs` reads. Named HERE rather than written out in
+# each engine: three copies of a URL literal is three places for it to drift,
+# and CLAUDE.md §1 puts site knowledge in this module and a handful of named
+# constants in the engines — not a bare URL in all three.
+FEED_URL = BASE_URL + "/jobs"
+
 MODES = ("role", "jobs", "job")
 DEFAULT_MODE = "role"
 

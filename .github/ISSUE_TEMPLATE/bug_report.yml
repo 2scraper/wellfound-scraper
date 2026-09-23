@@ -10,26 +10,22 @@ body:
         mask credentials in their own logs, but raw HTML dumps and the Scraper
         API's `x-debug` header do not. Replace them with `***`.
 
-        Two things answer most reports faster than we can:
+        A few things answer most reports faster than we can:
 
-        - **Everything exit 3?** Check the exit address first. Etsy's
-          DataDome answers every datacentre and VPN IP with HTTP 403, so a run
-          from a VPS or a CI runner is blocked whatever else is set. If the
-          log says `t=bv`, a captcha key does not help — that challenge is
-          not solvable. The Scraping Browser API (`--cdp-endpoint`) is the
-          path that works; if a profile keeps refusing after three retries,
-          try a different `pid`.
-        - **Zero products?** You may be on a page that has none — a taxonomy
-          hub, or one page past the end of a listing. It answers 200 with
-          nothing on it, which is exit 4 and a correct answer. See
-          [TROUBLESHOOTING.md](../blob/main/TROUBLESHOOTING.md).
-        - **`rating` empty on every row?** That is expected on a listing run:
-          Etsy publishes no per-listing rating there. The stars you see on a
-          tile are the shop's and are in `shop_rating`. See the README.
-        - **Wrong currency or language?** Etsy decides both from your exit
-          IP, not from the URL — a request for `/fr/…` from a German exit is
-          redirected to `/de/…`. The row's `url` says which storefront
-          actually answered.
+        - **Everything exit 3?** Check the exit address first. Wellfound
+          answers every route with HTTP 403 from a datacentre address,
+          `robots.txt` included, and no browser gets past it. A residential
+          exit (`WELLFOUND_PROXY` in `.env`) is what works — see "What is
+          gated and what is not" in the README.
+        - **`/company/{slug}` refused?** It is gated even from a residential
+          exit. There is no `--mode company` for that reason.
+        - **Zero jobs?** A listing can genuinely be empty, which is exit 4
+          and a correct answer. Check the URL is a `/role/...`, `/jobs` or
+          `/jobs/{id}-{slug}` page.
+        - **A column empty or "wrong"?** Read "Traps that look like bugs" in
+          the README first: `salary_period` is null on landing rows,
+          `has_equity: false` differs from `null`, and a page is twenty
+          companies, not twenty jobs.
 
   - type: dropdown
     id: engine
@@ -63,8 +59,8 @@ body:
       label: Exit code
       description: >-
         `echo $?` straight after the run. These mean specific things — 3 is a
-        challenge page, 4 is "ran fine, found nothing", 124 is a self-imposed
-        timeout. The table is in the README.
+        refusal or challenge page, 4 is "ran fine, found nothing", 124 is a
+        self-imposed timeout. The table is in the README.
       placeholder: "4"
     validations:
       required: true
@@ -77,8 +73,8 @@ body:
       render: shell
       placeholder: |
         python3 playwright_scraper.py \
-          --url "https://www.etsy.com/search?q=handmade+mug" \
-          --pages 3 --out grills
+          --url "https://wellfound.com/role/r/software-engineer" \
+          --pages 3
     validations:
       required: true
 
@@ -98,7 +94,7 @@ body:
     attributes:
       label: What you expected instead
       placeholder: >-
-        96 products, as the README says a category page yields.
+        32-45 job rows per page, as the README says a role landing page yields.
     validations:
       required: true
 

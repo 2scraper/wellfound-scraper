@@ -1,5 +1,5 @@
 name: Site changed / selectors broke
-description: Etsy changed something and the parser no longer matches.
+description: Wellfound changed something and the parser no longer matches.
 labels: ["site-change"]
 body:
   - type: markdown
@@ -7,21 +7,23 @@ body:
       value: |
         This is the most common way a scraper stops working, and it is worth its
         own report because the fix is different from a code bug: something on
-        etsy.com moved.
+        wellfound.com moved.
 
-        Useful to know before filing: the parser tries **JSON-LD first**, then a
-        CSS + URL-pattern fallback. Which one broke narrows the fix a lot.
+        Useful to know before filing: a landing page is read from the
+        normalised Apollo cache in `__NEXT_DATA__`, and a job page from its
+        one schema.org `JobPosting` block. The row's `data_source` column
+        (`apollo` / `jsonld`) says which one was read, and which one broke
+        narrows the fix a lot.
 
   - type: dropdown
     id: what_broke
     attributes:
       label: What stopped matching
       options:
-        - Products (0 rows on a page that visibly has products)
-        - A specific field is null or wrong (price, sku, image, URL)
-        - original_price or lowest_price_30d empty out (the tile overlay)
-        - DOM price confirmation dropped below 90% in the run log
-        - Pagination stops early or repeats a page
+        - Jobs (0 rows on a page that visibly has jobs)
+        - A specific field is null or wrong (salary, equity, sku, company, URL)
+        - The landing row and the job page disagree about a job
+        - Pagination stops early, repeats a page, or stops with page_echo_mismatch
         - The captcha detector finds nothing on a page that has one
         - Something else
     validations:
@@ -31,8 +33,8 @@ body:
     id: url
     attributes:
       label: URL
-      description: The exact listing URL, and the country your exit IP was in.
-      placeholder: "https://www.etsy.com/search?q=handmade+mug (locale: /de/, exit IP: DE residential, Scraping Browser pid: etsy1)"
+      description: The exact URL, and what kind of exit IP it was fetched from.
+      placeholder: "https://wellfound.com/role/r/software-engineer (exit IP: US residential)"
     validations:
       required: true
 
@@ -43,9 +45,9 @@ body:
       description: |
         Whichever of these you can get. A capture beats a description.
 
-        - JSON-LD as the page actually serves it:
-          `python3 -c "import json,sys,re;h=open('dump.html').read();print([m[:400] for m in re.findall(r'<script type=\"application/ld\\+json\">(.*?)</script>',h,re.S)][:2])"`
-        - Or open devtools and paste one `Product` node from the `ItemList`.
+        - A `--dump-html` capture of the page, or the relevant part of it:
+          the `__NEXT_DATA__` script on a landing page, the
+          `application/ld+json` `JobPosting` on a job page.
         - For a field problem: the value you got, and the value on the page.
       render: text
     validations:

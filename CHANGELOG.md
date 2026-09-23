@@ -10,6 +10,23 @@ does it leads the release notes rather than being discovered from a bill.
 
 ## [Unreleased]
 
+### Fixed
+
+- The bug-report and site-changed issue templates were Etsy's, copied from
+  the repo this one was bootstrapped from: they told a reporter about
+  DataDome, `t=bv`, Etsy's shop ratings and storefront redirects, and gave an
+  etsy.com URL as the example. Rewritten for Wellfound from this README (the
+  datacentre 403, the gated `/company/` route, the Apollo cache / JSON-LD
+  split, `page_echo_mismatch`).
+- Both issue templates and `playwright_scraper.py --dump-html --help`
+  pointed at a `TROUBLESHOOTING.md` this repo has never had. They now point
+  at the README sections that exist.
+- `captcha_solver.py`'s docstring referred to a "No DataDome solver"
+  section that is not in the file. The dangling line is gone.
+
+- `SECURITY.md` said this project has no releases or version tags; it has
+  both. "Supported versions" now names the latest release and `main`.
+
 ## [0.1.1] — 2026-09-17
 
 An audit against this family's own checklist, section by section, executing

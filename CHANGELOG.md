@@ -24,6 +24,9 @@ does it leads the release notes rather than being discovered from a bill.
 - `captcha_solver.py`'s docstring referred to a "No DataDome solver"
   section that is not in the file. The dangling line is gone.
 
+- `SECURITY.md` said this project has no releases or version tags; it has
+  both. "Supported versions" now names the latest release and `main`.
+
 ## [0.1.1] — 2026-09-17
 
 An audit against this family's own checklist, section by section, executing

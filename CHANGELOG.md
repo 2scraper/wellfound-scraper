@@ -10,6 +10,60 @@ does it leads the release notes rather than being discovered from a bill.
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-10-13
+
+> **Behaviour change:** `--retries 0` is now a usage error (exit 2) instead
+> of silently running no navigation at all. It counts ATTEMPTS per page
+> load, and zero never entered the loop — nothing was fetched, and the
+> engine then judged `about:blank`. A script passing `0` used to get exit 4
+> ("no jobs") for a site it had never asked.
+
+From a third-party audit dated 2026-10-13. Four findings were real; the
+audit's headline live result was an artefact of its own command, and that
+artefact is fixed too, because it is what made the misreading possible.
+
+### Fixed
+
+- **A run that fetched nothing reported "0 jobs".** State `unknown` or
+  `parse_error` left the page outcome marked ok, so the run reported
+  `completed` with zero rows and exited **4** — an ETL trusting the exit
+  code would conclude the catalogue had emptied. They now exit **5**.
+  `empty` still exits 4 (the site served a listing and it matched nothing),
+  and so does `not_found` (a 404 is the site answering definitively that the
+  address holds nothing). `page_flow.STATE_POLICY` carries `obtained` per
+  state and `stop_reason_for()` replaces a triage the three engines were
+  deriving in seven places between them.
+- **`--retries 0` ran no navigation.** See the blockquote. Measured on the
+  audited commit: `--retries 0` gave 39 bytes and exit 4; the same command
+  with `--retries 1` gave the site's real refusal — 11,922 bytes, `blocked`,
+  exit 3 — and with a residential exit, 115 rows over three pages, exit 0.
+- **`--category` did nothing in the Scraper API adapter.** It assigned
+  `row.category` to a dataclass with no such field, so `asdict()` never saw
+  it. It is a run label and goes to the sidecar; the adapter writes one now.
+- **The same adapter returned exit 4 for a served page that parsed to
+  nothing**, which is this repo's bug rather than an empty catalogue.
+- **Output writes were not atomic.** `open(path, "w")` truncates before a
+  byte is written, so an interrupted run left a shorter file where a
+  complete one was — worst for `<out>.meta.json`, the file a consumer
+  branches on. Writes go to a temp file in the same directory, fsync, then
+  `os.replace`, preserving an existing file's mode and otherwise using the
+  process umask (never a flat 0644, and never the 0600 a naive port leaves).
+- **Donor residue in the Scraper API adapter**: its description and `--mode`
+  help described a `profile` mode that does not exist in this repo.
+
+### Changed
+
+- **The `robots.txt` claim now says what is guaranteed.** "Reads only routes
+  `robots.txt` allows" read as a mechanism this code does not have. Every
+  route the parser accepts is allowed and every disallowed route has no
+  mode — now checked by the offline suite against the published file. It is
+  deliberately not a runtime gate: a preflight fetch is itself 403 from a
+  datacentre address, so it would fail closed where the scraper already
+  fails, or fail open.
+- Python **3.13** is in the CI matrix; the badge claimed 3.9–3.13 while CI
+  tested 3.9 and 3.12.
+
+
 ### Fixed
 - **The Scraper API engine failed on every `--wait-text` / `--wait-element` /
   `--wait-state` call, and was billed for it.** It sent `waitFor` as a
@@ -167,6 +221,7 @@ date is given.
   `$100k – $180k` on the listing and 100000–180000 USD in the detail page's
   `baseSalary`.
 
-[Unreleased]: https://github.com/2scraper/wellfound-scraper/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/2scraper/wellfound-scraper/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/2scraper/wellfound-scraper/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/2scraper/wellfound-scraper/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/2scraper/wellfound-scraper/releases/tag/v0.1.0

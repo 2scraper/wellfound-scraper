@@ -50,7 +50,7 @@ One key, four separately-billed products: [2captcha.com](https://2captcha.com)
 
 ## What it deliberately does not do
 
-It reads only routes `robots.txt` allows. It never submits Wellfound's apply or sign-up forms — an application filed by a scraper is a false record about a real person and a real company. There is no mode for candidate profiles (`/u/`, which `robots.txt` disallows), and no column anywhere for an individual's details. It defaults to a 2-second delay between pages.
+Every route it accepts is allowed by Wellfound's published `robots.txt`, and every route those rules disallow has no mode here — checked by the offline suite against the published file, though not enforced as a runtime gate. It never submits Wellfound's apply or sign-up forms — an application filed by a scraper is a false record about a real person and a real company. There is no mode for candidate profiles (`/u/`, which `robots.txt` disallows), and no column anywhere for an individual's details. It defaults to a 2-second delay between pages.
 
 ---
 

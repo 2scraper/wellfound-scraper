@@ -59,8 +59,11 @@ Everything below the dataclass is row-class-agnostic: pass `row_cls` so an
 empty CSV still gets the right header for the mode that produced it.
 """
 
+import contextlib
 import csv
 import json
+import tempfile
+import os
 from dataclasses import dataclass, asdict, field, fields
 from datetime import datetime, timezone
 from typing import Optional, List, Set, Sequence, Any, Type
@@ -252,8 +255,62 @@ def _csv_value(v: Any) -> Any:
     return v
 
 
+@contextlib.contextmanager
+def _atomic(path: str, newline: Optional[str] = None):
+    """Write to a temporary file beside `path`, then rename over it.
+
+    `open(path, "w")` truncates before a single byte is written, so a crash,
+    a kill or a full disk halfway through `json.dump` leaves a SHORTER file
+    where a complete one was. That breaks the same promise `save` keeps when
+    it refuses to overwrite good output with an empty result — the previous
+    good run destroyed by the ATTEMPT to replace it rather than by its
+    outcome.
+
+    The sidecar is the part that matters most: `<out>.meta.json` is the file
+    a consumer branches on, so a truncated one beside good rows reads as a
+    broken run over data that is fine.
+
+    Three details, each of which is wrong in the obvious version:
+
+    * the temporary file goes in the SAME directory, because `os.replace` is
+      atomic only within one filesystem and a temp file under /tmp can be on
+      another, where the rename degrades to an interruptible copy;
+    * `fsync` before the rename makes the content durable rather than merely
+      visible, which is the difference on power loss;
+    * **the MODE has to be restored.** `tempfile.NamedTemporaryFile` creates
+      at 0600, so a naive port leaves every output readable only by the user
+      who ran it — a scraper whose files a downstream job cannot open. An
+      existing file's mode is preserved; a new one gets the process umask
+      applied to 0666, which is what `open()` would have produced. Never a
+      flat 0644: that would widen the file on a deliberately strict umask.
+    """
+    directory = os.path.dirname(os.path.abspath(path)) or "."
+    try:
+        mode = os.stat(path).st_mode & 0o777
+    except FileNotFoundError:
+        umask = os.umask(0)
+        os.umask(umask)
+        mode = 0o666 & ~umask
+    handle = tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", newline=newline, dir=directory,
+        prefix=os.path.basename(path) + ".", suffix=".tmp", delete=False)
+    try:
+        with handle:
+            yield handle
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(handle.name, mode)
+        os.replace(handle.name, path)
+    except BaseException:
+        try:
+            os.unlink(handle.name)
+        except OSError:
+            pass
+        raise
+
+
 def write_json(rows: Sequence[Any], path: str) -> None:
-    with open(path, "w", encoding="utf-8") as f:
+    with _atomic(path) as f:
         json.dump([asdict(r) for r in rows], f, ensure_ascii=False, indent=2)
 
 
@@ -266,7 +323,7 @@ def write_csv(rows: Sequence[Any], path: str, row_cls: Type = JobPosting) -> Non
     # The header comes from `row_cls`, not from the first row, so an empty
     # run still writes the columns of the mode that produced it.
     fieldnames = [f.name for f in fields(row_cls)]
-    with open(path, "w", encoding="utf-8", newline="") as f:
+    with _atomic(path, newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for r in rows:
@@ -367,7 +424,10 @@ def write_run_meta(out_prefix: str, meta: dict) -> str:
     both complete, and between runs of different `mode`.
     """
     path = f"{out_prefix}.meta.json"
-    with open(path, "w", encoding="utf-8") as f:
+    # Atomic for the same reason as the rows, and more so: this is the file
+    # a consumer branches on, so a truncated one beside good data reads as a
+    # broken run over rows that are fine.
+    with _atomic(path) as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
     print(f"[+] Wrote run metadata -> {path} (status={meta.get('status')})")
     return path

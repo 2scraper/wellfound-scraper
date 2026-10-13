@@ -155,7 +155,18 @@ class PageOutcome:
 
     @property
     def ok(self) -> bool:
-        return not self.load_failed and self.blocked_by is None
+        """Did this page give us the site's own answer?
+
+        `empty` counts as ok — the site served a listing and it matched
+        nothing, which is an answer. `unknown`, `parse_error` and
+        `not_found` do NOT: the content was never obtained, and an outcome
+        that calls them ok is what turns a failed fetch into a complete run
+        holding zero jobs (exit 4 instead of 5). The policy lives in
+        page_flow so the three engines cannot disagree about it.
+        """
+        return (not self.load_failed
+                and self.blocked_by is None
+                and (self.state is None or page_flow.content_obtained(self.state)))
 
 
 # Every `scheme://user:pass@` in a string, however many times it occurs.
@@ -881,8 +892,8 @@ def scrape(args) -> int:
         outcomes.append(first)
 
         if not first.ok:
-            stop_reason = ("page_load_timeout" if first.load_failed
-                           else f"blocked_{first.blocked_by}")
+            stop_reason = page_flow.stop_reason_for(
+                    first.load_failed, first.blocked_by, first.state)
             blocked = first.blocked_by is not None
         elif args.mode == "job":
             pass  # one page is the whole run
@@ -906,8 +917,8 @@ def scrape(args) -> int:
                 outcome = _fetch_one_page(session, args, pool, page_num, url)
                 outcomes.append(outcome)
                 if not outcome.ok:
-                    stop_reason = ("page_load_timeout" if outcome.load_failed
-                                   else f"blocked_{outcome.blocked_by}")
+                    stop_reason = page_flow.stop_reason_for(
+                    outcome.load_failed, outcome.blocked_by, outcome.state)
                     blocked = outcome.blocked_by is not None
                     break
 
@@ -1038,7 +1049,7 @@ def parse_args():
     p.add_argument("--concurrency", type=int, default=1, metavar="N",
                    help="Accepted for flag parity and IGNORED here: parallel "
                         "page fetching lives in playwright_scraper.py.")
-    p.add_argument("--retries", type=int, default=3,
+    p.add_argument("--retries", type=page_flow.attempts, default=3,
                    help="Attempts per page load before giving up (default 3). "
                         "A page that comes back EMPTY is not retried: an empty "
                         "hub category is a correct answer, not a fault.")

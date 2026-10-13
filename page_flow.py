@@ -24,6 +24,7 @@ quietly acquire one driver's dialect. The callbacks below are named for the
 OPERATION instead, and each engine spells it in its own dialect (§1).
 """
 
+import argparse
 import logging
 from typing import Callable, Optional
 
@@ -128,13 +129,15 @@ def classify(html: Optional[str], status: Optional[int] = None,
 
 STATE_POLICY = {
     # A rendered page with job records in it.
-    "content":     {"retry": False, "solve": False, "blocked": False, "parse": True},
+    "content":     {"retry": False, "solve": False, "blocked": False, "parse": True,
+                    "obtained": True},
     # A landing page Wellfound served that matched nothing, carrying its own
     # "no jobs found" copy. The site answered exactly what was asked and it
     # has no jobs in it — a real answer, and EXIT_NO_PRODUCTS rather than
     # EXIT_BLOCKED. Reporting it as blocked sends a user hunting for a proxy
     # problem that is not there.
-    "empty":       {"retry": False, "solve": False, "blocked": False, "parse": True},
+    "empty":       {"retry": False, "solve": False, "blocked": False, "parse": True,
+                    "obtained": True},
     # Cloudflare. On this site the two refusal skins — the branded
     # "Security Check | Wellfound" 403 and the "Just a moment..."
     # interstitial — are ONE state, because they are the same decision by the
@@ -156,22 +159,71 @@ STATE_POLICY = {
     # can build a task for it once `TURNSTILE_INTERCEPT_JS` has captured the
     # parameters Cloudflare keeps out of the markup. `retry` is True because
     # a different exit clears it outright — measured, and much cheaper.
-    "blocked":     {"retry": True,  "solve": True,  "blocked": True,  "parse": False},
+    "blocked":     {"retry": True,  "solve": True,  "blocked": True,  "parse": False,
+                    "obtained": False},
     # A page built out of Wellfound's own assets whose payload we could not
     # read. NOT "zero jobs": a served page that links to jobs and parses to
     # nothing is OUR bug, and reporting it as an empty listing sends the
     # reader to check the URL instead of the parser (CLAUDE.md §20). Worth
     # one retry in case the document was caught mid-swap, and always worth a
     # dump.
-    "parse_error": {"retry": True,  "solve": False, "blocked": False, "parse": False},
+    "parse_error": {"retry": True,  "solve": False, "blocked": False, "parse": False,
+                    "obtained": False},
     # A 404. Retrying an address that does not exist is pure waste, and it is
     # not a block — saying so stops a user rotating proxies over a typo.
-    "not_found":   {"retry": False, "solve": False, "blocked": False, "parse": False},
+    # A 404 is OBTAINED: the site answered, definitively, that this address
+    # holds nothing. A consumer can conclude something about the catalogue
+    # from it — "that job is gone" — which is what separates it from
+    # `unknown` and `parse_error`, where nothing can be concluded. So it
+    # exits 4 like `empty` rather than 5, and it is still not parsed and not
+    # retried, because re-fetching an address that does not exist is waste.
+    "not_found":   {"retry": False, "solve": False, "blocked": False, "parse": False,
+                    "obtained": True},
     # Something that is neither the site nor a recognised refusal — an
     # upstream error page, a proxy's own response, Chromium's network-error
     # page. A wait, not a spend.
-    "unknown":     {"retry": True,  "solve": False, "blocked": False, "parse": False},
+    "unknown":     {"retry": True,  "solve": False, "blocked": False, "parse": False,
+                    "obtained": False},
 }
+
+
+def content_obtained(state: str) -> bool:
+    """Did this response give us the site's own answer?
+
+    The distinction `should_parse` does NOT make. `empty` holds no rows and
+    is still an answer — the site served a listing and it matched nothing —
+    while `unknown`, `parse_error`, `not_found` and `blocked` mean the
+    content was never obtained, so nothing can be concluded about the
+    catalogue from them.
+
+    Collapsing the two is how a run that fetched nothing reports "0 jobs"
+    (exit 4) instead of "the content never arrived" (exit 5). A third-party
+    audit on 2026-10-13 reported exactly that outcome and read it as the
+    site having emptied out; the chain was `unknown` -> an outcome still
+    marked ok -> stop_reason "completed" -> zero rows -> exit 4, with
+    `finish_run`'s own exit-5 branch never reachable because nothing ever
+    told it the run had failed (CLAUDE.md §9, §25).
+    """
+    return STATE_POLICY.get(state, STATE_POLICY["unknown"])["obtained"]
+
+
+def stop_reason_for(load_failed: bool, blocked_by: Optional[str],
+                    state: Optional[str]) -> str:
+    """The stop reason for a page that did not yield rows.
+
+    One implementation because the engines derive this in seven places
+    between them, and three copies of a triage drift silently — which is the
+    argument this module exists for (CLAUDE.md §1). `content_not_obtained_*`
+    is deliberately NOT in `COMPLETE_STOP_REASONS`, so a zero-row run
+    carrying it exits 5 rather than 4.
+    """
+    if load_failed:
+        return "page_load_timeout"
+    if blocked_by:
+        return f"blocked_{blocked_by}"
+    if state and not content_obtained(state):
+        return f"content_not_obtained_{state}"
+    return "completed"
 
 
 def should_retry(state: str) -> bool:
@@ -231,6 +283,37 @@ SOLVES_PER_PAGE = 1
 # ---------------------------------------------------------------------------
 # Pagination
 # ---------------------------------------------------------------------------
+
+def attempts(value: str) -> int:
+    """argparse type for `--retries`: ATTEMPTS per page load, so at least 1.
+
+    The engines' load loop is `range(1, retries + 1)`. Zero therefore ran it
+    NEVER: `goto` was not called, nothing was fetched, and the engine then
+    classified `about:blank` — a 39-byte empty DOM with no markers and no
+    assets, which comes out as `unknown` and, because the outcome was never
+    marked failed, as a COMPLETE run holding zero jobs.
+
+    That is not a hypothetical. A third-party audit of this repo on
+    2026-10-13 ran `--retries 0`, got exactly that, and concluded the site
+    had stopped serving the scraper. The same command with `--retries 1`
+    returned the site's real refusal — 11,922 bytes, classified `blocked`,
+    exit 3 — and with a residential exit, 115 rows over three pages.
+
+    So the flag is rejected rather than clamped: a run that silently became
+    a different run is how the misreading happened, and `0` is much more
+    likely to be a misunderstanding of the name than an instruction.
+    """
+    try:
+        n = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{value!r} is not an integer")
+    if n < 1:
+        raise argparse.ArgumentTypeError(
+            "must be at least 1: it counts ATTEMPTS per page load, and 0 "
+            "would attempt none and then judge a page that was never "
+            "fetched")
+    return n
+
 
 def pagination_is_addressable(url: str) -> bool:
     """Whether page N of this listing can be fetched without walking to it.

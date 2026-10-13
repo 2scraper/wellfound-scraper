@@ -378,5 +378,14 @@ Changes: [CHANGELOG.md](CHANGELOG.md)
 
 MIT. This is an independent tool; it is not affiliated with or endorsed by
 Wellfound or AngelList. Scraping is your responsibility — check the site's
-terms and `robots.txt` (this scraper reads only routes `robots.txt` allows)
-and keep your request rate civil.
+terms and `robots.txt`, and keep your request rate civil.
+
+**On `robots.txt`:** every route this scraper accepts is allowed by
+Wellfound's published rules, and every route those rules disallow (`/u/`,
+`/_jobs/`, `/search`, `/jobs/signup`, `/auth/`, …) has no mode here. That is
+a property of the code and the offline suite checks it against the published
+file, so adding a mode for a disallowed route fails the build. It is **not**
+a runtime gate: the scraper does not fetch `robots.txt` before each run and
+does not parse rules at request time. Said precisely because the previous
+wording — "reads only routes robots.txt allows" — read as a mechanism this
+code does not have.

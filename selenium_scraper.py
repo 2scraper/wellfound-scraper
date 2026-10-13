@@ -780,8 +780,22 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
 
     final_url = d["current_url"]() or url
     if not page_flow.should_parse(state):
-        logger.info("Page %d came back as %s; nothing to parse.", page_num,
-                    state)
+        # Dump it. A state that holds no rows is a state somebody will have
+        # to diagnose, and the only way to tell a parsing bug from a page
+        # that never arrived is the exact bytes (CLAUDE.md §9). Until the
+        # 2026-10-13 audit this path wrote nothing at all: the auditor's run
+        # failed and left no artefact, which is half of why the cause was
+        # misread. The blocked path has always dumped; this one did not.
+        debug_html = f"{args.out}_page{page_num}_debug.html"
+        try:
+            with open(debug_html, "w", encoding="utf-8") as f:
+                f.write(html or "")
+        except OSError as e:
+            debug_html = f"(could not be written: {e})"
+        logger.info("Page %d came back as %s (%d bytes, own assets "
+                    "referenced %d time(s)) — nothing to parse, saved to %s.",
+                    page_num, state, len(html or ""),
+                    references_own_assets(html or ""), debug_html)
         outcome.final_url = final_url
         return outcome
 

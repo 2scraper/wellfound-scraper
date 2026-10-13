@@ -786,6 +786,38 @@ def check_content_not_obtained_is_never_an_empty_result():
                   o.ok, want_ok)
 
 
+def check_a_page_that_yielded_nothing_is_dumped():
+    """A state that holds no rows is one somebody will have to diagnose.
+
+    The blocked path has always written a debug dump. The
+    content-not-obtained path wrote NOTHING — so a failing run left no
+    artefact, and the 2026-10-13 audit's own words were "тело ответа не было
+    сохранено для последующего анализа". It was right, and that is half of
+    why the cause was misread: there was nothing to look at.
+
+    Asserted on the source rather than by driving a browser, because the
+    branch needs a live navigation and the suite must pass with no engine
+    library installed.
+    """
+    for module in ENGINES:
+        path = os.path.join(HERE, module + ".py")
+        if not os.path.exists(path):
+            continue
+        source = open(path, encoding="utf-8").read()
+        marker = "nothing to parse"
+        check("%s has the content-not-obtained branch" % module,
+              marker in source)
+        if marker not in source:
+            continue
+        branch = source[source.index(marker) - 1200:source.index(marker) + 400]
+        check("%s dumps the body on that branch" % module,
+              "_debug.html" in branch,
+              "the branch writes no artefact to diagnose from")
+        check("%s reports the size and the asset count with it" % module,
+              "references_own_assets" in branch,
+              "a dump with no numbers beside it is harder to read")
+
+
 def check_retries_counts_attempts_and_refuses_zero():
     """`--retries 0` ran no navigation at all and judged `about:blank`.
 

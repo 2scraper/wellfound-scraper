@@ -442,6 +442,102 @@ def check_route_and_mode_are_derived_from_the_url():
         equal("mode from %s" % url, P.mode_for_url(url), mode)
 
 
+# Wellfound's own robots.txt, fetched 2026-10-13 through a residential exit
+# (it answers 403 to a datacentre address, like every other route here).
+# Inline rather than in a fixtures directory, per CLAUDE.md §10.
+ROBOTS_TXT = """#
+# Hey human,
+#
+# We like robots too. Come talk robot with us.
+#
+# https://wellfound.com/company/wellfound/jobs
+#
+
+User-agent: *
+Disallow: /_jobs/
+Disallow: /*?after_sign_in=*
+Disallow: /*?inFrame=*
+Disallow: /*?jobId=*
+Disallow: /*?jobSlug=*
+Disallow: /*?preview=*
+Disallow: /*?role=*
+Disallow: /*&inFrame=*
+Disallow: /*&jobId=*
+Disallow: /*&jobSlug=*
+Disallow: /*&preview=*
+Disallow: /auth/
+Disallow: /cdn-cgi/
+Disallow: /documents/
+Disallow: /embed/
+Disallow: /job_listings/report_company
+Disallow: /job_pairings/howitworks
+Disallow: /job_profiles/embed
+Disallow: /jobs/applications
+Disallow: /jobs/signup
+Disallow: /onboarding
+Disallow: /profile/edit
+Disallow: /profile/notifications
+Disallow: /profile/review
+Disallow: /profile/resume
+Disallow: /projects/
+Disallow: /re/
+Disallow: /recruit/dashboard
+Disallow: /search
+Disallow: /social/share_modal
+Disallow: /u/
+
+Sitemap: https://wellfound.com/sitemap.xml.gz
+Sitemap: https://wellfound.com/blog-index.xml.gz
+"""
+
+
+def check_every_route_this_scraper_reads_is_robots_allowed():
+    """The README says this scraper reads only routes `robots.txt` allows.
+
+    That was a claim about BEHAVIOUR with no mechanism behind it — the word
+    appeared in comments and nowhere in the code — which a third-party audit
+    raised on 2026-10-13 and was right to raise.
+
+    It is a CHECK rather than a runtime gate, and that is a decision worth
+    stating. A preflight fetch of robots.txt would add a request that is
+    itself refused from a datacentre address (403, like every route here),
+    so the gate would either fail closed exactly where the scraper already
+    fails — a second failure mode for no safety gained — or fail open, which
+    is a gate that does not gate. What makes the claim true is that the
+    routes this scraper ACCEPTS are allowed and the disallowed ones have no
+    mode; that is a property of the code, tested here and re-tested against
+    the live file by the canary.
+    """
+    import urllib.robotparser
+    import product_parser as P
+    rp = urllib.robotparser.RobotFileParser()
+    rp.parse(ROBOTS_TXT.splitlines())
+
+    for path in ("/", "/jobs", "/role/software-engineer",
+                 "/role/r/software-engineer",
+                 "/role/l/data-scientist/new-york",
+                 "/jobs/4697947-senior-software-engineer"):
+        check("robots allows a route this scraper reads: " + path,
+              rp.can_fetch("*", "https://wellfound.com" + path), path)
+
+    # ...and every route robots disallows must have no mode at all. `/u/` is
+    # a candidate's own profile, which CONTRIBUTING also refuses on data
+    # grounds rather than only on this one.
+    for path in ("/u/someone", "/_jobs/anything", "/jobs/signup",
+                 "/auth/login", "/profile/resume"):
+        url = "https://wellfound.com" + path
+        check("robots disallows " + path + ", and so does the parser",
+              not rp.can_fetch("*", url) and not P.is_supported_url(url)[0],
+              path)
+
+    # The guard must have had something to read, or it passes for the wrong
+    # reason (CLAUDE.md §22): an empty robots file allows everything.
+    rules = [l for l in ROBOTS_TXT.splitlines()
+             if l.lower().startswith("disallow")]
+    check("...and the fixture really carries rules", len(rules) > 10,
+          str(len(rules)) + " Disallow line(s)")
+
+
 def check_unsupported_urls_are_refused_with_a_reason():
     """A wrong reason sends the reader hunting for a typo (CLAUDE.md §5)."""
     import product_parser as P
@@ -632,6 +728,134 @@ def check_company_size_tokens():
     equal("size: an unknown token survives", P.company_size("SIZE_WEIRD"),
           "SIZE_WEIRD")
     equal("size: absent stays absent", P.company_size(None), None)
+
+
+def check_content_not_obtained_is_never_an_empty_result():
+    """A page we never read must not report "0 jobs" (CLAUDE.md §9, §25).
+
+    Found by a third-party audit on 2026-10-13. The chain was four links
+    long and every one of them looked right on its own: `unknown` ->
+    `should_parse` False -> an outcome still marked `ok` (it checked only
+    `load_failed` and `blocked_by`) -> `stop_reason` left at "completed" ->
+    zero rows -> exit 4. `finish_run` has had the exit-5 branch since the
+    family unified on it, and nothing ever reached it, because nothing told
+    it the run had failed.
+
+    `empty` is the one that must stay exit 4: the site served a listing and
+    it matched nothing, which is an answer about the catalogue. The other
+    three are not.
+    """
+    import page_flow
+    from output_writer import COMPLETE_STOP_REASONS
+    # `not_found` is in the OBTAINED list on purpose: a 404 is the site
+    # answering definitively that the address holds nothing, so a consumer
+    # can conclude something about the catalogue from it. `unknown` and
+    # `parse_error` say nothing at all.
+    equal("an answered page counts as obtained",
+          [s for s in ("content", "empty", "not_found")
+           if page_flow.content_obtained(s)],
+          ["content", "empty", "not_found"])
+    for state in ("unknown", "parse_error", "blocked"):
+        check("%s does NOT count as obtained" % state,
+              not page_flow.content_obtained(state))
+        reason = page_flow.stop_reason_for(False, None, state)
+        check("...and its stop_reason is not a COMPLETE one",
+              reason not in COMPLETE_STOP_REASONS, reason)
+    equal("an answered page keeps the plain reason",
+          page_flow.stop_reason_for(False, None, "empty"), "completed")
+    # A transport failure and a block still win over the state, because they
+    # say more about what happened.
+    equal("a load failure is still a load failure",
+          page_flow.stop_reason_for(True, None, "unknown"), "page_load_timeout")
+    equal("a block is still a block",
+          page_flow.stop_reason_for(False, "cloudflare", "blocked"),
+          "blocked_cloudflare")
+
+    # And the engines must consult it rather than keeping their own copy.
+    for module in ENGINES:
+        engine = _import_engine(module)
+        if engine is None:
+            skip("outcome-ok", "%s not importable here" % module)
+            continue
+        for state, want_ok in (("content", True), ("empty", True),
+                               ("not_found", True),
+                               ("unknown", False), ("parse_error", False)):
+            o = engine.PageOutcome(page_num=1, url="u")
+            o.state = state
+            equal("%s.PageOutcome.ok for state=%s" % (module, state),
+                  o.ok, want_ok)
+
+
+def check_a_page_that_yielded_nothing_is_dumped():
+    """A state that holds no rows is one somebody will have to diagnose.
+
+    The blocked path has always written a debug dump. The
+    content-not-obtained path wrote NOTHING — so a failing run left no
+    artefact, and the 2026-10-13 audit's own words were "тело ответа не было
+    сохранено для последующего анализа". It was right, and that is half of
+    why the cause was misread: there was nothing to look at.
+
+    Asserted on the source rather than by driving a browser, because the
+    branch needs a live navigation and the suite must pass with no engine
+    library installed.
+    """
+    for module in ENGINES:
+        path = os.path.join(HERE, module + ".py")
+        if not os.path.exists(path):
+            continue
+        source = open(path, encoding="utf-8").read()
+        marker = "nothing to parse"
+        check("%s has the content-not-obtained branch" % module,
+              marker in source)
+        if marker not in source:
+            continue
+        branch = source[source.index(marker) - 1200:source.index(marker) + 400]
+        check("%s dumps the body on that branch" % module,
+              "_debug.html" in branch,
+              "the branch writes no artefact to diagnose from")
+        check("%s reports the size and the asset count with it" % module,
+              "references_own_assets" in branch,
+              "a dump with no numbers beside it is harder to read")
+
+
+def check_retries_counts_attempts_and_refuses_zero():
+    """`--retries 0` ran no navigation at all and judged `about:blank`.
+
+    The load loop is `range(1, retries + 1)`, so zero never entered it:
+    `goto` was not called, and the engine then classified a 39-byte empty
+    DOM. That is how the 2026-10-13 audit concluded the site had stopped
+    serving this scraper — its own command had fetched nothing. The same
+    command with `--retries 1` returned the site's real refusal (11,922
+    bytes, `blocked`, exit 3).
+
+    Rejected rather than clamped: a run that silently becomes a different
+    run is exactly how the misreading happened.
+    """
+    import argparse as _ap
+    import page_flow
+    equal("--retries 1 is accepted", page_flow.attempts("1"), 1)
+    equal("--retries 3 is accepted", page_flow.attempts("3"), 3)
+    for bad in ("0", "-1"):
+        try:
+            page_flow.attempts(bad)
+            check("--retries %s is refused" % bad, False, "it was accepted")
+        except _ap.ArgumentTypeError as e:
+            check("--retries %s is refused with a reason" % bad,
+                  "at least 1" in str(e), str(e))
+    try:
+        page_flow.attempts("two")
+        check("a non-integer is refused", False, "it was accepted")
+    except _ap.ArgumentTypeError:
+        check("a non-integer is refused", True)
+    # Every engine must route the flag through it, or the guard is decorative.
+    for module in ENGINES:
+        path = os.path.join(HERE, module + ".py")
+        if not os.path.exists(path):
+            continue
+        source = open(path, encoding="utf-8").read()
+        check("%s parses --retries through page_flow.attempts" % module,
+              '"--retries", type=page_flow.attempts' in source,
+              "it still takes a bare int")
 
 
 def check_state_policy():

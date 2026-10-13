@@ -246,7 +246,11 @@ a real company.
 
 This repo scrapes **public pages** on wellfound.com: role landing pages, the
 jobs feed and individual job pages, exactly as an anonymous visitor is served
-them. It reads only routes `robots.txt` allows.
+them. Every route it accepts is allowed by Wellfound's published
+`robots.txt`, and every disallowed route has no mode —
+`check_every_route_this_scraper_reads_is_robots_allowed` pins both halves
+against the published file. It is a check, not a runtime gate; the docstring
+there says why.
 
 Out of scope: anything behind a login, anything that submits a form
 (including the apply and sign-up flows), anything that defeats a protection

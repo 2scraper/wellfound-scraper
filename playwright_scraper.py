@@ -144,7 +144,18 @@ class PageOutcome:
 
     @property
     def ok(self) -> bool:
-        return not self.load_failed and self.blocked_by is None
+        """Did this page give us the site's own answer?
+
+        `empty` counts as ok — the site served a listing and it matched
+        nothing, which is an answer. `unknown`, `parse_error` and
+        `not_found` do NOT: the content was never obtained, and an outcome
+        that calls them ok is what turns a failed fetch into a complete run
+        holding zero jobs (exit 4 instead of 5). The policy lives in
+        page_flow so the three engines cannot disagree about it.
+        """
+        return (not self.load_failed
+                and self.blocked_by is None
+                and (self.state is None or page_flow.content_obtained(self.state)))
 
 
 ITEM_LINK_SELECTOR = page_flow.READY_SELECTOR_LISTING
@@ -1098,8 +1109,22 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
         # Reached only for a state the policy says holds no rows — and it
         # says so in ONE place, so an engine cannot quietly decide to parse
         # something its twins would not.
-        logger.info("Page %d came back as %s; nothing to parse.", page_num,
-                    state)
+        # Dump it. A state that holds no rows is a state somebody will have
+        # to diagnose, and the only way to tell a parsing bug from a page
+        # that never arrived is the exact bytes (CLAUDE.md §9). Until the
+        # 2026-10-13 audit this path wrote nothing at all: the auditor's run
+        # failed and left no artefact, which is half of why the cause was
+        # misread. The blocked path has always dumped; this one did not.
+        debug_html = f"{args.out}_page{page_num}_debug.html"
+        try:
+            with open(debug_html, "w", encoding="utf-8") as f:
+                f.write(html or "")
+        except OSError as e:
+            debug_html = f"(could not be written: {e})"
+        logger.info("Page %d came back as %s (%d bytes, own assets "
+                    "referenced %d time(s)) — nothing to parse, saved to %s.",
+                    page_num, state, len(html or ""),
+                    references_own_assets(html or ""), debug_html)
         outcome.final_url = session.page.url
         return outcome
 
@@ -1364,8 +1389,8 @@ def scrape(args) -> int:
             outcomes.append(first)
 
             if not first.ok:
-                stop_reason = ("page_load_timeout" if first.load_failed
-                               else f"blocked_{first.blocked_by}")
+                stop_reason = page_flow.stop_reason_for(
+                    first.load_failed, first.blocked_by, first.state)
                 blocked = first.blocked_by is not None
             elif args.mode == "job":
                 pass  # one page is the whole run
@@ -1401,8 +1426,8 @@ def scrape(args) -> int:
                     failed = [o for o in rest if not o.ok]
                     if failed:
                         worst = min(failed, key=lambda o: o.page_num)
-                        stop_reason = ("page_load_timeout" if worst.load_failed
-                                       else f"blocked_{worst.blocked_by}")
+                        stop_reason = page_flow.stop_reason_for(
+                    worst.load_failed, worst.blocked_by, worst.state)
                         blocked = any(o.blocked_by for o in rest)
                     elif exhausted:
                         stop_reason = "no_new_products"
@@ -1424,8 +1449,8 @@ def scrape(args) -> int:
                         outcome = _fetch_one_page(session, args, pool, page_num, url)
                         outcomes.append(outcome)
                         if not outcome.ok:
-                            stop_reason = ("page_load_timeout" if outcome.load_failed
-                                           else f"blocked_{outcome.blocked_by}")
+                            stop_reason = page_flow.stop_reason_for(
+                    outcome.load_failed, outcome.blocked_by, outcome.state)
                             blocked = outcome.blocked_by is not None
                             break
 
@@ -1612,7 +1637,7 @@ def parse_args():
                         "own browser and holds its own proxy exit, so N>1 "
                         "without --proxy-file just sends N times the traffic "
                         "from one address. Ignored with --cdp-endpoint.")
-    p.add_argument("--retries", type=int, default=3,
+    p.add_argument("--retries", type=page_flow.attempts, default=3,
                    help="Attempts per page load before giving up (default 3). "
                         "The pause between attempts doubles each time. A page "
                         "that comes back EMPTY is not retried — see "

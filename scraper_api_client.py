@@ -43,9 +43,10 @@ from typing import Optional
 import requests
 
 from product_parser import (BOT_CHALLENGE_MARKERS, MODES, DEFAULT_MODE,
+                            category_from_url,
                             detect_bot_challenge, detect_page_state,
                             parse_products, parse_detail)
-from output_writer import save
+from output_writer import finish_run, SOURCE_DEFAULT
 import env_config
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -282,26 +283,44 @@ def _run_once(args, attempt: int = 1, attempts: int = 1) -> int:
         products = [row] if row is not None else []
     else:
         products = parse_products(html, args.url, mode=args.mode)
-    if args.category:
-        for row in products:
-            row.category = args.category
     logger.info("Parsed %d job(s).", len(products))
 
+    # `--category` is a RUN LABEL, not a column. It used to be assigned to
+    # each row as `row.category`, and `JobPosting` has no such field — so
+    # Python attached a dynamic attribute that `asdict()` never sees, and
+    # the flag silently did nothing. It goes in the sidecar, which is where
+    # the browser engines put it too.
+    label = args.category or category_from_url(args.url)
+
+    # A page the API SERVED that parses to nothing is this repo's bug, not
+    # an empty catalogue (CLAUDE.md §20). It used to return 4 — the same
+    # conflation the engines carried until this audit — so it now reports a
+    # non-complete stop reason, which `finish_run` maps to exit 5 and never
+    # to "no jobs".
     if not products:
         dump = f"{args.out}_scraperapi_debug.html"
         with open(dump, "w", encoding="utf-8") as f:
             f.write(html)
-        logger.warning("0 jobs parsed — saved the raw response to %s so "
-                       "you can see what actually came back.", dump)
-        return 4
+        logger.warning("0 jobs parsed from a page the API served (%d bytes) "
+                       "— saved to %s. That is a parser failure, not an "
+                       "empty listing.", len(html), dump)
+        stop = "content_not_obtained_parse_error"
+    else:
+        stop = "completed"
 
-    return save(products, args.out, args.format, allow_empty=args.allow_empty)
+    return finish_run(products, args.out, args.format, args.allow_empty,
+                      blocked=False, stop_reason=stop,
+                      pages_requested=1, pages_completed=1 if products else 0,
+                      pages_failed=[] if products else [1],
+                      mode=args.mode, source=SOURCE_DEFAULT,
+                      start_url=args.url, final_url=args.url,
+                      extra={"category": label, "via": "scraper_api"})
 
 
 def parse_args():
     p = argparse.ArgumentParser(
         description="Wellfound scraper — 2captcha Scraper API edition (no local "
-                    "browser). Built for --mode profile, which is one "
+                    "browser). What decides success is the EXIT: its own "
                     "server-rendered page and a good fit. NOT the way to "
                     "browser needed). What decides success is the EXIT: "
                     "ordinary HTTPS request with no key and no proxy, so "
@@ -321,10 +340,13 @@ def parse_args():
                         "WELLFOUND_URL is set in the environment or .env.")
     p.add_argument("--mode", choices=list(MODES),
                    default=DEFAULT_MODE,
-                   help="Default profile, unlike the browser engines, "
-                        "because a profile is the only page kind this path "
-                        "reads that the free endpoint cannot.")
-    p.add_argument("--category", default=None, help="Label to tag output rows with. Defaults to the category segment of the URL, so the column is never empty just because the flag was omitted.")
+                   help="Which page kind to read (default %(default)s). "
+                        "The same three the browser engines take; this path "
+                        "renders the page remotely instead of locally.")
+    p.add_argument("--category", default=None,
+                   help="Label for the RUN, recorded in the sidecar — not a "
+                        "column on the rows. Defaults to what the URL "
+                        "selects.")
     p.add_argument("--format", choices=["json", "csv", "both"], default="both")
     p.add_argument("--out", default="wellfound_jobs_scraperapi", help="Output file prefix")
     p.add_argument("--timeout", type=int, default=60,

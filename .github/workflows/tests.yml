@@ -59,7 +59,7 @@ jobs:
         # check still imported the row dataclass by a name this repo renamed,
         # and it failed on this repo's FIRST push while the script it
         # duplicates passed — two sources of truth, one of them stale, which
-        # is exactly the defect CLAUDE.md §17 describes.
+        # is exactly how a check turns into dead code that looks load-bearing.
         #
         # So: one implementation, and `smoke_test.py` now asserts the workflow
         # does not grow another one.

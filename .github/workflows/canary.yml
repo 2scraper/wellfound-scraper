@@ -1,7 +1,7 @@
 # One real run against wellfound.com. tests.yml (deliberately) never touches
 # the site — see its own header.
 #
-# THIS CANARY IS GATED, AND THAT IS A MEASUREMENT RATHER THAN CAUTION.
+# THIS CANARY NEEDS A RESIDENTIAL EXIT, AND THAT IS A MEASUREMENT.
 #
 # Wellfound refuses a datacenter address on EVERY route, `robots.txt`
 # included. Measured 2026-09-17 from a Hetzner VPS: HTTP 403 to plain HTTP,
@@ -9,22 +9,29 @@
 # residential US exit, HTTP 200 on `/`, `/jobs`, every `/role/…` shape and
 # `/jobs/{id}-{slug}`, three times out of three.
 #
-# A GitHub runner is a datacenter address. So an ungated live run here would
-# be red every single morning, and a check that is always red teaches
-# everyone to ignore checks (CLAUDE.md §11). This workflow therefore SKIPS
-# with a ::notice:: when no proxy secret is set, and runs for real when one
-# is:
+# A GitHub runner is a datacenter address, so the job that checks real data
+# (`listing`) runs through the WELLFOUND_PROXY secret:
 #
 #     gh secret set WELLFOUND_PROXY --repo 2scraper/wellfound-scraper
 #
+# WITHOUT that secret the job FAILS with an error naming it. It used to skip
+# with a notice and end green, and 28 green runs in a row had never touched
+# the site: a skipped canary is not a tested success.
+#
 # The secret goes through the ENVIRONMENT, never a `--proxy` flag: a
-# credential on a command line is readable by anything that can run `ps`
-# (CLAUDE.md §3). `env_config.py` already reads exactly this variable, and an
-# unset secret arrives as an empty string which the loader treats as unset —
-# so the same step is correct with and without it.
+# credential on a command line is readable by anything that can run `ps`.
+# `env_config.py` already reads exactly this variable.
+#
+# The second job (`datacentre`) needs no secret. It is documented as
+# "datacentre refusal expected": it runs the same engine from the bare
+# runner and requires the refusal to be RECOGNISED as one (exit 3 with the
+# refusal page saved), or real rows if the site ever serves the runner. A
+# crash, a timeout or an unreadable page (exit 1/5) is red there. It proves
+# the engine reaches the site and classifies what it gets; it does not
+# replace `listing`, which is the job that tests real data.
 #
 # `secrets` is not available in a job-level `if`, so presence is tested
-# through job `env` and read in each step's `if`.
+# through job `env` and read in a step.
 
 name: canary
 
@@ -40,7 +47,7 @@ permissions:
 
 jobs:
   listing:
-    name: role listing (needs a residential proxy secret)
+    name: role listing (needs the WELLFOUND_PROXY secret)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -48,29 +55,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Explain the skip
+      - name: Require the proxy secret
         if: env.HAVE_PROXY != 'true'
         run: |
-          echo "::notice::Skipping the live run: no WELLFOUND_PROXY secret is set."
-          echo "Wellfound answers a datacenter address with HTTP 403 on every route,"
-          echo "and a GitHub runner is a datacenter address, so this cannot pass"
-          echo "without a residential exit. The offline suite in tests.yml covers the"
-          echo "parser; this job covers the live site only."
-          echo ""
-          echo "    gh secret set WELLFOUND_PROXY --repo 2scraper/wellfound-scraper"
+          echo "::error::WELLFOUND_PROXY is not set, so this canary cannot reach wellfound.com and has tested nothing. Wellfound answers a datacenter address (a GitHub runner) with HTTP 403 on every route; set a residential exit: gh secret set WELLFOUND_PROXY --repo 2scraper/wellfound-scraper"
           {
-            echo "### Canary skipped"
-            echo "No \`WELLFOUND_PROXY\` secret. See the job log for why a datacenter"
-            echo "address cannot reach this site."
+            echo "### Canary did not run"
+            echo "No \`WELLFOUND_PROXY\` secret. A datacenter address cannot reach this"
+            echo "site, so without a residential exit there is nothing to test."
           } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
 
       - uses: actions/setup-python@v5
-        if: env.HAVE_PROXY == 'true'
         with:
           python-version: "3.12"
 
       - name: Install
-        if: env.HAVE_PROXY == 'true'
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-playwright.txt
@@ -78,10 +78,9 @@ jobs:
 
       # >= 3 pages, because with one page pagination is never exercised —
       # which is exactly how a silent single-page bug survived in a sibling
-      # repo (CLAUDE.md §11).
+      # repo.
       - name: Run
         id: run
-        if: env.HAVE_PROXY == 'true'
         env:
           # Through the environment, not argv. See the header.
           WELLFOUND_PROXY: ${{ secrets.WELLFOUND_PROXY }}
@@ -94,7 +93,6 @@ jobs:
           echo "exit_code=$?" >> "$GITHUB_OUTPUT"
 
       - name: Check what came back
-        if: env.HAVE_PROXY == 'true'
         env:
           EXIT_CODE: ${{ steps.run.outputs.exit_code }}
         run: |
@@ -114,7 +112,9 @@ jobs:
                      "credential before concluding the site changed.",
                   4: "Zero jobs (exit 4). Either this role genuinely has no "
                      "listings now, or the Apollo payload shape moved.",
-                  5: "Remote API error (exit 5) — nothing was tested.",
+                  5: "Content not obtained (exit 5): a load timeout, a dead "
+                     "exit, or a page that was served but could not be read "
+                     "(parse_error). Check the saved debug page.",
                   6: "Partial (exit 6): some pages came back and some did not.",
               }.get(code, "See the log."))
               sys.exit(1)
@@ -224,4 +224,67 @@ jobs:
             canary.csv
             canary.meta.json
             canary_page*_debug.html
+          if-no-files-found: ignore
+
+  datacentre:
+    # Datacentre refusal expected — see the header. Exit 3 is accepted here
+    # ONLY because `listing` is the job that requires real rows.
+    name: bare runner (datacentre refusal expected)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-playwright.txt
+          playwright install --with-deps chromium
+
+      - name: Run from the runner's own address
+        id: run
+        run: |
+          set +e
+          python playwright_scraper.py \
+            --role software-engineer --remote \
+            --pages 1 --format json --out bare
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Check the refusal was recognised
+        env:
+          EXIT_CODE: ${{ steps.run.outputs.exit_code }}
+        run: |
+          code="$EXIT_CODE"
+          if [ "$code" = "3" ]; then
+            if ls bare_page1_debug.html >/dev/null 2>&1; then
+              echo "::notice::Datacentre refusal recognised (exit 3), as expected from a GitHub runner. Real data is checked by the 'listing' job."
+              exit 0
+            fi
+            echo "::error::Exit 3 without the refusal page saved — the block path did not run as designed."
+            exit 1
+          fi
+          if [ "$code" = "0" ]; then
+            rows=$(python -c "import json; print(len(json.load(open('bare.json'))))")
+            if [ "$rows" -ge 20 ]; then
+              echo "::notice::Wellfound served the bare runner ($rows rows). The datacentre gating may have changed; re-measure."
+              exit 0
+            fi
+            echo "::error::Exit 0 with only $rows rows."
+            exit 1
+          fi
+          echo "::error::The bare-runner run exited $code: neither a recognised refusal (3) nor real rows (0). 5 means content was not obtained (timeout or an unreadable page); 1 is a crash."
+          exit 1
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: canary-datacentre
+          path: |
+            bare.json
+            bare.meta.json
+            bare_page1_debug.html
           if-no-files-found: ignore

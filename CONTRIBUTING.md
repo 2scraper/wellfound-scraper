@@ -107,13 +107,13 @@ history needs a decision, not a red check on every push.
 
 Then the rest of the presentation, in the order that matters:
 
-1. `python3 smoke_test.py` green, and the canary dispatched at least once —
-   including its SKIP branch, which is what runs when the `WELLFOUND_PROXY`
-   secret is absent. Unlike some siblings in this family, EVERY route on
-   this site is refused to a datacenter address, and a GitHub runner is one,
-   so the canary is gated in full rather than in half. Confirm the skip path
-   runs and goes green, not just the happy one — a check that is always red
-   teaches everyone to ignore checks.
+1. `python3 smoke_test.py` green, and the canary dispatched at least once
+   with the `WELLFOUND_PROXY` secret set. EVERY route on this site is
+   refused to a datacenter address, and a GitHub runner is one, so the
+   `listing` job needs a residential exit; without the secret it FAILS with
+   an error naming it, because a canary that skipped has tested nothing.
+   The `datacentre` job runs without a secret and only confirms that the
+   runner's refusal is recognised as one (exit 3) rather than misread.
 2. The repo description, homepage and topics set (see the family notes on
    what those should say).
 3. Only then the row in the org profile README — and check it with an

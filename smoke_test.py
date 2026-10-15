@@ -1,8 +1,8 @@
 """
-smoke_test.py — the offline suite for wellfound-scraper.
+Smoke_test.py — the offline suite for wellfound-scraper.
 
 One file of plain functions with inline fixtures. No pytest, no conftest, no
-fixtures directory (CLAUDE.md §10); `tests/test_smoke.py` wraps this as a
+fixtures directory; `tests/test_smoke.py` wraps this as a
 single pytest test so `pytest` works as an entry point without a second copy
 of the checks.
 
@@ -98,7 +98,7 @@ INTERSTITIAL_HTML = r'''<html><head><title>Just a moment...</title></head><body>
 #
 # This fixture exists for one check and it is the most important one in the
 # file: `challenges.cloudflare.com` and `turnstile` are on this GOOD page and
-# absent from both refusals above, so the marker CLAUDE.md §19 recommends is
+# absent from both refusals above, so the marker other sites rely on is
 # inverted here. Counted on the real captures (2026-09-17): 1 and 6 on every
 # served landing page, 0 and 0 on both refusals.
 SERVED_WITH_SITE_TURNSTILE_HTML = LISTING_NEXT_DATA
@@ -108,7 +108,7 @@ SERVED_WITH_SITE_TURNSTILE_HTML = LISTING_NEXT_DATA
 # ---------------------------------------------------------------------------
 # The parser, asserted on VALUES rather than on coverage
 # ---------------------------------------------------------------------------
-# A column can be 100% populated and entirely wrong (CLAUDE.md §10), so every
+# A column can be 100% populated and entirely wrong, so every
 # check below pins a figure from the real capture rather than counting
 # non-nulls.
 
@@ -238,7 +238,7 @@ def check_salary_period_is_null_on_a_listing_row():
     """The listing string carries no period, so the column must not invent one.
 
     `$140k` on a job board reads as a year, but the PAGE does not say so.
-    CLAUDE.md §8: never present a guess as a fact. The detail page does state
+    Never present a guess as a fact. The detail page does state
     one, and the next check pins that it is read.
     """
     import product_parser as P
@@ -278,8 +278,8 @@ def check_feed_uses_different_types_and_one_parser_reads_both():
 def check_detail_page_is_a_different_mechanism():
     """A job page has no `__NEXT_DATA__` and one schema.org JobPosting.
 
-    This is CLAUDE.md §20's "a DETAIL page may publish a different JSON-LD
-    type than the listing" in its sharpest form: a different MECHANISM. The
+    A DETAIL page may publish a different JSON-LD type than the listing,
+    here in its sharpest form: a different MECHANISM. The
     failure it guards is silent — the listing parser returns [] rather than
     raising — so it is pinned directly, in both directions.
     """
@@ -313,8 +313,8 @@ def check_detail_page_is_a_different_mechanism():
 def check_the_two_sources_agree_about_pay():
     """Where both views publish a salary they must agree.
 
-    CLAUDE.md §4 says to check whether structured and displayed prices
-    disagree on every new site. Here they do not: job 4697947 is
+    Structured and displayed prices are checked for disagreement on every
+    new site. Here they do not: job 4697947 is
     `'$100k – $180k • 0.05% – 0.25%'` on the listing and 100000-180000 USD in
     the detail page's `baseSalary`. That agreement is what lets `--mode job`
     enrich a `--mode role` run instead of contradicting it, and it is pinned
@@ -343,7 +343,7 @@ def check_an_out_of_range_page_is_detected_from_the_payload():
     A run that trusted its own request would collect page 1 for as long as it
     was asked to and report success. The server states which page it really
     used inside the Apollo cache key, and that is an unambiguous signal
-    rather than the weaker "no new sku" heuristic (CLAUDE.md §17).
+    rather than the weaker "no new sku" heuristic.
     """
     import product_parser as P
     page = P.parse_listing_page(LISTING_NEXT_DATA, page=48)
@@ -378,7 +378,7 @@ def check_only_the_landing_routes_are_addressable():
     `?page=2` on /jobs does not fail and does not empty — it returns the
     identical 46 job ids as page 1. A `page_url()` used unconditionally there
     would find no new sku, conclude the listing was exhausted, and report a
-    COMPLETE run holding page 1 (CLAUDE.md §18).
+    COMPLETE run holding page 1.
     """
     import page_flow
     for url, want in (
@@ -444,7 +444,7 @@ def check_route_and_mode_are_derived_from_the_url():
 
 # Wellfound's own robots.txt, fetched 2026-10-13 through a residential exit
 # (it answers 403 to a datacentre address, like every other route here).
-# Inline rather than in a fixtures directory, per CLAUDE.md §10.
+# Inline rather than in a fixtures directory, like every fixture here.
 ROBOTS_TXT = """#
 # Hey human,
 #
@@ -531,7 +531,7 @@ def check_every_route_this_scraper_reads_is_robots_allowed():
               path)
 
     # The guard must have had something to read, or it passes for the wrong
-    # reason (CLAUDE.md §22): an empty robots file allows everything.
+    # reason: an empty robots file allows everything.
     rules = [l for l in ROBOTS_TXT.splitlines()
              if l.lower().startswith("disallow")]
     check("...and the fixture really carries rules", len(rules) > 10,
@@ -539,7 +539,7 @@ def check_every_route_this_scraper_reads_is_robots_allowed():
 
 
 def check_unsupported_urls_are_refused_with_a_reason():
-    """A wrong reason sends the reader hunting for a typo (CLAUDE.md §5)."""
+    """A wrong reason sends the reader hunting for a typo."""
     import product_parser as P
     ok, why = P.is_supported_url("https://wellfound.com/role/r/software-engineer")
     check("supported: a landing page is accepted", ok, why)
@@ -595,7 +595,7 @@ def check_page_states_on_real_captures():
     equal("state: 404 is not a block", P.detect_page_state("<html></html>", 404),
           "not_found")
     # A served page whose payload we could not read is OUR bug, never
-    # "0 jobs" (CLAUDE.md §20).
+    # "0 jobs".
     broken = ('<html><body><img src="https://photos.wellfound.com/x.jpg">'
               '<script id="__NEXT_DATA__" type="application/json">'
               '{"props":{"pageProps":{"apolloState":{"data":{"ROOT_QUERY":{}}}}}}'
@@ -605,7 +605,7 @@ def check_page_states_on_real_captures():
 
 
 def check_markers_do_not_match_a_page_wellfound_serves():
-    """Count every marker on a page known GOOD before trusting it (§18).
+    """Count every marker on a page known GOOD before trusting it.
 
     This is the check that caught the mistake this repo would otherwise have
     shipped. `challenges.cloudflare.com` is the marker the rest of this
@@ -652,7 +652,7 @@ def check_only_one_refusal_skin_carries_a_widget():
         "Just a moment..." (browser)           _cf_chl_opt 7x, turnstile 1x
 
     So the no-JS skin carries **no widget at all**, and that is the precise
-    sense in which a page is unsolvable (CLAUDE.md §19: "unsolvable" is a
+    sense in which a page is unsolvable ("unsolvable" is a
     property of a PAGE with nothing on it, never of a vendor). Paying for a
     task built from a page like that buys an ERROR_CAPTCHA_UNSOLVABLE, which
     is why the engines refuse to build one without a captured sitekey.
@@ -680,7 +680,7 @@ def check_only_one_refusal_skin_carries_a_widget():
 
 def check_the_sites_own_turnstile_is_recognised_as_configured():
     """"Did we meet a captcha" is the wrong question; "is one configured, and
-    would we recognise it" is the right one (CLAUDE.md §18).
+    would we recognise it" is the right one.
 
     One is: Wellfound publishes its sitekey in its own page config and
     renders a widget with it when its own fetch wrapper is challenged. That
@@ -731,7 +731,7 @@ def check_company_size_tokens():
 
 
 def check_content_not_obtained_is_never_an_empty_result():
-    """A page we never read must not report "0 jobs" (CLAUDE.md §9, §25).
+    """A page we never read must not report "0 jobs".
 
     Found by a third-party audit on 2026-10-13. The chain was four links
     long and every one of them looked right on its own: `unknown` ->
@@ -878,7 +878,7 @@ def check_state_policy():
           page_flow.should_retry("blocked")
           and page_flow.should_solve("blocked")
           and page_flow.counts_as_blocked("blocked"))
-    # A served page we could not read is OUR bug, never "0 jobs" (§20), so
+    # A served page we could not read is OUR bug, never "0 jobs", so
     # it neither counts as blocked nor buys a solve.
     check("parse_error: retried once, never solved, NOT blocked",
           page_flow.should_retry("parse_error")
@@ -901,7 +901,7 @@ def check_state_policy():
 
 
 def check_policy_constants_have_a_consumer():
-    """§17: a policy constant nothing reads is the same defect as dead code.
+    """A policy constant nothing reads is the same defect as dead code.
 
     `RETRY_ON_BLOCKED` carried a paragraph of justification in a sibling repo
     and no engine consulted it, so setting it False changed nothing.
@@ -935,7 +935,7 @@ def check_policy_constants_have_a_consumer():
 def check_row_schema():
     from output_writer import JobPosting, ROW_CLASS_BY_MODE, UNIQUE_BY_SKU_MODES
     names = [f.name for f in fields(JobPosting)]
-    equal("the family prefix is byte-identical and in order (§9)",
+    equal("the family prefix is byte-identical and in order",
           names[:5], ["source", "scraped_at", "url", "sku", "title"])
     for gone in ("price", "currency", "original_price", "discount_pct",
                  "in_stock", "brand"):
@@ -1026,7 +1026,7 @@ def check_exit_codes():
 
 
 def check_a_partial_run_says_so_and_still_writes():
-    """§9: blocked != empty != partial, and all three are distinct exit codes.
+    """Blocked != empty != partial, and all three are distinct exit codes.
 
     Only the CONSTANT was pinned — `EXIT_PARTIAL == 6` — never the behaviour,
     which is the half a consumer branches on. A partial run has to do four
@@ -1088,7 +1088,7 @@ def check_a_run_that_finds_nothing_writes_nothing():
         code = save([], prefix, "json", allow_empty=True)
         equal("--allow-empty WRITES the empty file...", 
               json.load(open(prefix + ".json", encoding="utf-8")), [])
-        # ...and still reports exit 4. Pinned deliberately (§10: pin a known
+        # ...and still reports exit 4. Pinned deliberately (pin a known
         # behaviour rather than half-guarding it): "zero businesses" is true
         # whether or not the file was written, and a caller that wanted the
         # file still wants to know the result was empty.
@@ -1133,7 +1133,7 @@ def check_sidecar_shape():
 
 
 # ---------------------------------------------------------------------------
-# The engines — the five checks CLAUDE.md §17 says to steal
+# The engines — binding, flags, names, imports and numbers
 # ---------------------------------------------------------------------------
 
 ENGINES = ("playwright_scraper", "selenium_scraper", "puppeteer_scraper")
@@ -1180,7 +1180,7 @@ def check_engines_import_their_driver_at_module_level():
 
 
 def check_shared_calls_bind_against_the_real_signature():
-    """§17's check #1, and the one that earns its keep.
+    """Shared calls bind against the callee, and the one that earns its keep.
 
     A sibling repo shipped `classify(html, url=…)` in two of three engines
     against a callee taking `status` second, and BOTH crashed on their first
@@ -1296,7 +1296,7 @@ def _argparse_flags(module_name):
     return flags
 
 
-# The family's flag contract (CLAUDE.md §9), plus this repo's own additions.
+# The family's flag contract, plus this repo's own additions.
 CONTRACT_FLAGS = {
     "--url", "--pages", "--category", "--format", "--out", "--delay",
     "--retries", "--retry-delay", "--concurrency", "--proxy", "--proxy-file",
@@ -1312,7 +1312,7 @@ SITE_FLAGS = {"--mode", "--role", "--location", "--remote", "--locale"}
 
 
 def check_engine_flag_sets():
-    """§17's check #2: against the contract AND against each other, both ways.
+    """Flag sets: against the contract AND against each other, both ways.
 
     A missing flag fails; so does closing a difference the README documents.
     """
@@ -1329,7 +1329,7 @@ def check_engine_flag_sets():
     # and could not launch it on the development machine, so it needs a way
     # to point at another one. Its twins have no equivalent because they do
     # not ship a browser. Listed here so that closing the difference — or
-    # growing a second one — fails the build (§17).
+    # growing a second one — fails the build.
     DOCUMENTED_DIFFERENCES = {"puppeteer_scraper": {"--chromium-path"}}
     names = sorted(sets)
     for i in range(len(names) - 1):
@@ -1352,8 +1352,7 @@ def check_banned_and_removed_flags():
     Wellfound serves one host in one language, so such a flag could only
     contradict what the URL already says. On `fingerprint_client.py` the same
     name is legitimate — there it picks a fingerprint locale, not a target —
-    which is why this check is scoped to the engines rather than to the tree
-    (CLAUDE.md §10).
+    which is why this check is scoped to the engines rather than to the tree.
 
     What the rule is really about is a flag that can disagree with the URL,
     and the equivalent on this site IS enforced: `--role`, `--location` and
@@ -1375,7 +1374,7 @@ def check_banned_and_removed_flags():
 
 
 def check_undefined_names_in_every_module():
-    """§10: compileall proves a file PARSES, not that its names RESOLVE.
+    """Compileall proves a file PARSES, not that its names RESOLVE.
 
     A live run of a sibling repo's pyppeteer engine died with NameError on a
     line reached only while fetching, after an import had been removed — the
@@ -1433,7 +1432,7 @@ def _import_graph(entrypoint):
 
 
 def check_dockerfile_copies_everything_the_entrypoint_imports():
-    """§10: all three repos in this family shipped an image that died with
+    """All three repos in this family shipped an image that died with
     ModuleNotFoundError on every invocation, --help included, because
     proxy_pool.py was missing from the COPY list. CI never built the image;
     this check needs no Docker."""
@@ -1481,7 +1480,7 @@ def check_env_example_documents_exactly_what_the_loader_reads():
 
 
 def check_a_copied_env_example_reads_as_UNSET():
-    """§17: `cp .env.example .env` followed by a run must not connect.
+    """`cp .env.example .env` followed by a run must not connect.
 
     The placeholder check was a literal set in a sibling repo, and the two
     credentialled URLs are documented the way the vendor documents them —
@@ -1496,14 +1495,20 @@ def check_a_copied_env_example_reads_as_UNSET():
         return
     text = open(example, encoding="utf-8").read()
     values = dict(re.findall(r"^([A-Z][A-Z0-9_]+)=(.*)$", text, re.M))
-    check("the example actually sets every variable",
-          set(values) == set(env_config.ENV_KEYS),
+    # WELLFOUND_URL is shipped COMMENTED OUT, and that is pinned: an active
+    # one filled --url for every run of a copied example, and the builder
+    # flags then exited 2 as if a URL had been typed beside them. The engines
+    # now also ignore an environment URL when the role flags are given, so
+    # this is belt and braces rather than the only defence.
+    check("WELLFOUND_URL is an example, not an active setting",
+          "WELLFOUND_URL" not in values
+          and re.search(r"^#\s*WELLFOUND_URL=https://wellfound\.com/", text,
+                        re.M) is not None)
+    check("the example actually sets every credential variable",
+          set(values) == set(env_config.ENV_KEYS) - {"WELLFOUND_URL"},
           "example has %s, loader reads %s"
           % (sorted(values), sorted(env_config.ENV_KEYS)))
-    # Every CREDENTIAL must read as unset. The default TARGET must not: it is
-    # a real, usable URL, and blanking it would remove the one setting this
-    # file exists to make convenient (§17's check #3 says exactly this — the
-    # credentials unset, the non-credential default still usable).
+    # Every CREDENTIAL must read as unset.
     CREDENTIALS = {"TWOCAPTCHA_KEY", "WELLFOUND_CDP_ENDPOINT",
                    "WELLFOUND_PROXY"}
     before = dict(os.environ)
@@ -1535,7 +1540,7 @@ def check_a_copied_env_example_reads_as_UNSET():
 
 
 def check_credential_scan_is_one_implementation_invoked_from_both():
-    """§17: two sources of truth, one dead and one holed.
+    """Two sources of truth, one dead and one holed.
 
     `.github/ci_checks.py` sat in three repos invoked by NOTHING, while
     tests.yml carried an inline grep doing a narrower version of the same job
@@ -1552,7 +1557,7 @@ def check_credential_scan_is_one_implementation_invoked_from_both():
     # file being missing: two suites in this family run INSIDE the Docker
     # image, which deliberately COPYs no .github/, and a check that quietly
     # starts passing once its input disappears is the same failure this
-    # function is about (CLAUDE.md §22).
+    # function is about.
     if not os.path.isdir(workflow_dir):
         skip("ci-wiring", "no .github/ in this tree (the Docker image)")
     elif os.path.exists(workflow):
@@ -1581,7 +1586,7 @@ def check_credential_scan_is_one_implementation_invoked_from_both():
                   "tests.yml's offline job mentions %r — one implementation, "
                   "in ci_checks.py, invoked from both" % marker)
         # And the guard must have had something to read, or it passed for the
-        # wrong reason (CLAUDE.md §22).
+        # wrong reason.
         check("...and the offline job was actually found to scan",
               "ci_checks.py" in offline, "no offline job in tests.yml")
     result = subprocess.run([sys.executable, script, "--all"], cwd=HERE,
@@ -1609,7 +1614,7 @@ def check_the_credential_scan_survives_a_venv_in_the_tree():
     The fix is structural rather than a longer list of names — a directory
     holding `pyvenv.cfg` is a virtualenv whatever it is called — and this
     pins BOTH halves, because narrowing a credential scan is exactly how one
-    stops catching things. CLAUDE.md §22 records a sibling repo whose scan
+    stops catching things. A sibling repo's scan
     caught an UNTRACKED `.env.bak` holding a live key, so scanning must not
     be reduced to tracked files.
     """
@@ -1648,7 +1653,7 @@ def check_the_credential_scan_survives_a_venv_in_the_tree():
 
 
 def check_banned_wording():
-    """§12: enforced by this test rather than by review."""
+    """Enforced by this test rather than by review."""
     for root, dirs, files in os.walk(HERE):
         dirs[:] = [d for d in dirs if d not in
                    (".git", "__pycache__", ".pytest_cache", "node_modules")]
@@ -1666,7 +1671,7 @@ def check_banned_wording():
 
 
 def check_concurrency_with_the_browser_stubbed():
-    """§10: a live run cannot always reach this machinery.
+    """A live run cannot always reach this machinery.
 
     Page 1 is fetched alone and decides how many pages there are, so a
     blocked page 1 means the workers never start. Driven directly instead,
@@ -1812,7 +1817,7 @@ def check_worker_pools_start_on_different_exits():
 
 
 def check_fingerprint_kwargs_are_ones_the_driver_accepts():
-    """§10: an unknown key in new_context(**kwargs) is a TypeError at launch,
+    """An unknown key in new_context(**kwargs) is a TypeError at launch,
     on the PAID path, at runtime."""
     engine = _import_engine("playwright_scraper")
     if engine is None:
@@ -1867,7 +1872,7 @@ def check_every_engine_exposes_the_same_public_surface():
 
 def check_every_solve_is_counted_against_the_budget():
     """`SOLVES_PER_PAGE` is a MONEY limit, so every call that can buy must be
-    counted — CLAUDE.md §17's "a policy constant nothing reads".
+    counted — a policy constant nothing reads is not enforced.
 
     `handle_captcha_if_present` is called TWICE per attempt in every engine:
     once before the page is classified (so a challenge is cleared before
@@ -1908,7 +1913,7 @@ def check_every_solve_is_counted_against_the_budget():
 
 
 def check_a_dead_proxy_is_reported_as_a_proxy_failure():
-    """CLAUDE.md §8: a proxy failure is not a timeout, and the two want
+    """A proxy failure is not a timeout, and the two want
     opposite responses — another try at the same exit versus a different one.
 
     The engines all compute the reason (`_proxy_failure`) and, WITH a pool,
@@ -1931,7 +1936,7 @@ def check_a_dead_proxy_is_reported_as_a_proxy_failure():
         # Anchored on the GIVE-UP branch — the one that reports and returns —
         # not on the `if load_failed: break` inside the retry loop, which
         # comes first in the file and would make this check read the wrong
-        # block and pass for the wrong reason (CLAUDE.md §22).
+        # block and pass for the wrong reason.
         marker = "        outcome.load_failed = True"
         if marker not in source:
             check("%s has a give-up branch to check" % module, False)
@@ -1963,7 +1968,7 @@ def check_a_dead_proxy_is_reported_as_a_proxy_failure():
 
 
 def check_engines_do_not_evaluate_a_string_in_the_browser():
-    """§18: a site whose CSP omits `unsafe-eval` kills wait_for_function with
+    """A site whose CSP omits `unsafe-eval` kills wait_for_function with
     an EvalError and takes the run down with exit 1. Wellfound has not been
     measured for that, and the cheap habit costs nothing where it would have
     been allowed."""
@@ -1981,7 +1986,7 @@ def check_engines_do_not_evaluate_a_string_in_the_browser():
 
 
 def check_credentials_never_reach_a_log():
-    """§8: an EXCEPTION MESSAGE is a log, and the masker must be GLOBAL.
+    """An EXCEPTION MESSAGE is a log, and the masker must be GLOBAL.
 
     A Playwright connection error repeats the endpoint five times (the
     message plus a four-line call log), so a masker handling only the first
@@ -2027,7 +2032,7 @@ def check_sample_output_matches_the_schema():
 
 
 def check_readme_numbers_are_not_stale():
-    """§17's check #4: diff every numeric claim against what is on disk.
+    """Diff every numeric claim against what is on disk.
 
     Only the figures that MUST hold are pinned: a number that legitimately
     varies between runs is written as a range in the README and not checked
@@ -2067,7 +2072,7 @@ def _tree_state():
 
 
 def check_no_test_mutates_the_working_tree():
-    """§10: one suite used its own file as a fake chromedriver and chmod'd it
+    """One suite used its own file as a fake chromedriver and chmod'd it
     to 755, leaving a mode change in git status.
 
     Compares the tree against how it looked when the suite STARTED, not
@@ -2085,7 +2090,7 @@ def check_no_test_mutates_the_working_tree():
 
 
 def check_captcha_capability_claims_match_the_code():
-    """§19: the most expensive bug this family can ship is a SENTENCE.
+    """The most expensive bug this family can ship is a SENTENCE.
 
     It fails in both directions and this family has shipped both:
 
@@ -2252,6 +2257,467 @@ def check_scraper_api_waitfor_is_object_and_status_is_http_code():
     check(f"Scraper API: the status handed onward must be the target's "
           f"http_code 403 (int), not the API's own verdict, got {status!r}",
           status == 403 and isinstance(status, int))
+
+
+
+# ---------------------------------------------------------------------------
+# The engines' page loop, driven with the driver library STUBBED
+# ---------------------------------------------------------------------------
+# The engine groups above skip when Playwright, Selenium or pyppeteer is not
+# installed, which is every core-only run, and that is how two defects in the
+# mirror engines survived a green suite: Selenium and pyppeteer raised
+# AttributeError on the ordinary no-proxy block (`pool.current` on None), and
+# both classified every `--mode job` page as a listing. These checks load each
+# engine from disk with its driver library replaced by stubs, so they run in
+# the core venv and in every engine venv alike, and drive the REAL
+# `_fetch_one_page` with a fake session.
+
+_STUB_DRIVER_MODULES = (
+    "playwright", "playwright.sync_api",
+    "selenium", "selenium.common", "selenium.common.exceptions",
+    "selenium.webdriver", "selenium.webdriver.chrome",
+    "selenium.webdriver.chrome.options", "selenium.webdriver.common",
+    "selenium.webdriver.common.by", "selenium.webdriver.support",
+    "selenium.webdriver.support.ui",
+    "pyppeteer",
+)
+
+
+def _engine_with_stub_driver(name):
+    """Import `<name>.py` under a private module name with every driver
+    library replaced by a stub whose attributes are exception classes.
+    sys.modules is restored afterwards, so the real engine imports elsewhere
+    in this suite are unaffected."""
+    import importlib.util
+    import types
+
+    class _StubLib(types.ModuleType):
+        def __getattr__(self, attr):
+            if attr.startswith("__"):
+                raise AttributeError(attr)
+            cls = type(attr, (Exception,), {})
+            setattr(self, attr, cls)
+            return cls
+
+    saved = {m: sys.modules.get(m) for m in _STUB_DRIVER_MODULES}
+    try:
+        for m in _STUB_DRIVER_MODULES:
+            sys.modules[m] = _StubLib(m)
+        for m in _STUB_DRIVER_MODULES:
+            if "." in m:
+                parent, child = m.rsplit(".", 1)
+                setattr(sys.modules[parent], child, sys.modules[m])
+        spec = importlib.util.spec_from_file_location(
+            "_stubbed_" + name, os.path.join(HERE, name + ".py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    finally:
+        for m, v in saved.items():
+            if v is None:
+                sys.modules.pop(m, None)
+            else:
+                sys.modules[m] = v
+
+
+class _Anything:
+    """A driver object that accepts any call and returns None."""
+    def __getattr__(self, attr):
+        if attr.startswith("__"):
+            raise AttributeError(attr)
+        return lambda *a, **k: None
+
+
+class _FakeResponse:
+    def __init__(self, status):
+        self.status = status
+
+
+def _drive_one_page(engine_name, html, mode="role", pool=None, timeout=False,
+                    status=200, url=None):
+    """Run the engine's real `_fetch_one_page` once against a fake session.
+    Returns (outcome or None, exception or None, calls)."""
+    import argparse as _argparse
+    engine = _engine_with_stub_driver(engine_name)
+    url = url or ("https://wellfound.com/jobs/4697947-senior-software-engineer"
+                  if mode == "job"
+                  else "https://wellfound.com/role/r/software-engineer")
+    calls = {"goto": 0, "relaunch": 0, "solve": 0}
+    tmp = tempfile.mkdtemp()
+
+    def navigate(*_a, **_k):
+        calls["goto"] += 1
+        if timeout:
+            raise timeout_exc("Navigation timeout of 60000 ms exceeded")
+        return _FakeResponse(status)
+
+    page = _Anything()
+    page.url = url
+    page.goto = navigate
+    page.query_selector_all = lambda *_a: []
+    session = _Anything()
+    session.page = page
+
+    def relaunch():
+        calls["relaunch"] += 1
+    session.relaunch = relaunch
+
+    if engine_name == "playwright_scraper":
+        timeout_exc = engine.PWTimeout
+        engine._snapshot = lambda _page, _url: html
+    elif engine_name == "selenium_scraper":
+        timeout_exc = engine.TimeoutException
+        driver = _Anything()
+        driver.get = navigate
+        driver.current_url = url
+        session.driver = driver
+        engine._snapshot = lambda _s, _url: html
+        engine._driver = lambda _s: {
+            "count": lambda _sel: 0, "sleep": lambda _ms: None,
+            "content": lambda: html, "current_url": lambda: url}
+    else:
+        timeout_exc = RuntimeError
+        bridge = _Anything()
+        bridge.run = lambda value: value
+        session.bridge = bridge
+        engine._snapshot = lambda _s, _url: html
+        engine._content = lambda _s: html
+        engine._driver = lambda _s: {
+            "count": lambda _sel: 0, "sleep": lambda _ms: None,
+            "content": lambda: html, "current_url": lambda: url}
+
+    def no_solve(*_a, **_k):
+        calls["solve"] += 1
+        return False
+    engine.handle_captcha_if_present = no_solve
+
+    args = _argparse.Namespace(
+        url=url, mode=mode, pages=1, retries=1, retry_delay=0, delay=0,
+        proxy_block_retries=1, out=os.path.join(tmp, "out"), dump_html=None,
+        solve_captcha="when-blocked", twocaptcha_key=None, captcha_api="v2",
+        min_score=0.7, cdp_endpoint=None, proxy=None, format="json",
+        allow_empty=False, category=None)
+    import logging
+    import shutil
+    logging.disable(logging.CRITICAL)
+    try:
+        return engine._fetch_one_page(session, args, pool, 1, url), None, calls
+    except Exception as e:  # noqa: BLE001 — the point is to catch it
+        return None, e, calls
+    finally:
+        logging.disable(logging.NOTSET)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def check_mirror_engines_survive_a_block_and_a_timeout_without_a_proxy():
+    """No proxy is the ordinary case, and a block is the ordinary outcome
+    from a datacentre address. Every engine must report it, not crash."""
+    from proxy_pool import ProxyPool
+    for engine_name in ENGINES:
+        for label, html in (("branded refusal", BRANDED_BLOCK_HTML),
+                            ("interstitial", INTERSTITIAL_HTML)):
+            outcome, err, calls = _drive_one_page(engine_name, html)
+            check("%s: a %s with no proxy is reported, not raised"
+                  % (engine_name, label), err is None, repr(err))
+            if outcome is not None:
+                equal("%s: ...as state blocked" % engine_name,
+                      outcome.state, "blocked")
+                equal("%s: ...after one re-fetch through the same path"
+                      % engine_name, calls["goto"], 2)
+                equal("%s: ...without relaunching anything" % engine_name,
+                      calls["relaunch"], 0)
+        outcome, err, calls = _drive_one_page(engine_name, "", timeout=True)
+        check("%s: a load timeout with no proxy is reported, not raised"
+              % engine_name, err is None, repr(err))
+        if outcome is not None:
+            check("%s: ...as a load failure" % engine_name,
+                  outcome.load_failed)
+        # With a real pool the block retry DOES rotate.
+        pool = ProxyPool(["http://a:1", "http://b:2"], rotate="per-run")
+        outcome, err, calls = _drive_one_page(engine_name, BRANDED_BLOCK_HTML,
+                                              pool=pool)
+        check("%s: with a two-exit pool a block rotates and relaunches"
+              % engine_name, err is None and calls["relaunch"] == 1,
+              "err=%r relaunch=%r" % (err, calls["relaunch"]))
+
+
+def check_every_engine_reads_a_job_page_as_a_job():
+    """`--mode job` must reach the job reader in every engine."""
+    for engine_name in ENGINES:
+        outcome, err, _calls = _drive_one_page(engine_name, JOB_DETAIL_HTML,
+                                               mode="job")
+        check("%s: a job page in --mode job does not raise" % engine_name,
+              err is None, repr(err))
+        if outcome is not None:
+            equal("%s: ...is classified content" % engine_name,
+                  outcome.state, "content")
+            equal("%s: ...and yields its one row" % engine_name,
+                  len(outcome.products), 1)
+
+
+def check_every_classify_call_passes_the_mode():
+    """Signature binding cannot see an omitted OPTIONAL argument, and an
+    omitted `mode` silently classifies every job page as a listing."""
+    for engine_name in ENGINES:
+        tree = ast.parse(open(os.path.join(HERE, engine_name + ".py"),
+                              encoding="utf-8").read())
+        sites = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = (func.attr if isinstance(func, ast.Attribute)
+                    else getattr(func, "id", None))
+            if name not in ("classify", "_classify"):
+                continue
+            if isinstance(func, ast.Attribute) and not (
+                    isinstance(func.value, ast.Name)
+                    and func.value.id == "page_flow"):
+                continue
+            # page_flow.classify(html, status, url, mode) / _classify(page,
+            # html, status, mode): mode is the 4th positional or a keyword.
+            passes = (any(kw.arg == "mode" for kw in node.keywords)
+                      or len(node.args) >= 4)
+            sites.append((node.lineno, passes))
+        check("%s has classify call sites" % engine_name, len(sites) >= 3,
+              "%d found" % len(sites))
+        for lineno, passes in sites:
+            check("%s:%d classify(...) passes mode" % (engine_name, lineno),
+                  passes)
+
+
+def check_the_http_status_reaches_the_classifier():
+    """A 404 is `not_found` only if the status gets there. Playwright and
+    pyppeteer have one; Selenium does not expose it and decides by body."""
+    gone = "<html><head><title>Page not found</title></head><body></body></html>"
+    for engine_name in ("playwright_scraper", "puppeteer_scraper"):
+        outcome, err, calls = _drive_one_page(engine_name, gone, mode="job",
+                                              status=404)
+        check("%s: a 404 does not raise" % engine_name, err is None, repr(err))
+        if outcome is not None:
+            equal("%s: ...is classified not_found" % engine_name,
+                  outcome.state, "not_found")
+            equal("%s: ...and is not re-fetched" % engine_name,
+                  calls["goto"], 1)
+        outcome, err, _calls = _drive_one_page(engine_name, JOB_DETAIL_HTML,
+                                               mode="job", status=200)
+        check("%s: a 200 job page is still content" % engine_name,
+              outcome is not None and outcome.state == "content",
+              "err=%r state=%r" % (err, getattr(outcome, "state", None)))
+
+
+def check_an_environment_url_does_not_block_the_builder_flags():
+    """`cp .env.example .env` used to make `--role X` exit 2: the URL from
+    the environment was judged as if it had been typed beside the flag."""
+    before_env, before_argv = dict(os.environ), list(sys.argv)
+    try:
+        os.environ["WELLFOUND_URL"] = "https://wellfound.com/role/r/software-engineer"
+        for engine_name in ENGINES:
+            engine = _engine_with_stub_driver(engine_name)
+
+            def run(argv):
+                sys.argv = [engine_name + ".py"] + argv
+                try:
+                    return engine.parse_args(), None
+                except SystemExit as e:
+                    return None, e.code
+
+            args, code = run(["--role", "data-scientist"])
+            check("%s: env URL + --role builds the role URL" % engine_name,
+                  args is not None
+                  and args.url == "https://wellfound.com/role/data-scientist",
+                  "exit %r, url %r" % (code, getattr(args, "url", None)))
+            args, code = run(["--role", "sales", "--location", "london"])
+            check("%s: env URL + --role --location builds that URL"
+                  % engine_name,
+                  args is not None and "/role/l/sales/london" in args.url,
+                  "exit %r" % code)
+            args, code = run(["--mode", "jobs"])
+            check("%s: env URL + --mode jobs reads the feed" % engine_name,
+                  args is not None and args.url.rstrip("/").endswith("/jobs"),
+                  "exit %r, url %r" % (code, getattr(args, "url", None)))
+            args, code = run([])
+            check("%s: with no flags the env URL is still the default"
+                  % engine_name,
+                  args is not None
+                  and args.url == os.environ["WELLFOUND_URL"],
+                  "exit %r" % code)
+            args, code = run(["--url", "https://wellfound.com/role/r/sales",
+                              "--role", "sales"])
+            equal("%s: a TYPED --url with --role is still refused"
+                  % engine_name, code, 2)
+    finally:
+        os.environ.clear()
+        os.environ.update(before_env)
+        sys.argv = before_argv
+
+
+def check_counting_flags_refuse_values_that_would_skip_or_crash():
+    """A negative block-retry count made the loop run zero times (no fetch
+    at all), and a negative delay crashed in time.sleep after page 1."""
+    before_argv = list(sys.argv)
+    bad = [("--pages", "0"), ("--pages", "-1"), ("--concurrency", "0"),
+           ("--proxy-block-retries", "-1"), ("--delay", "-1"),
+           ("--retry-delay", "-0.5"), ("--retries", "0")]
+    try:
+        for engine_name in ENGINES:
+            engine = _engine_with_stub_driver(engine_name)
+            for flag, value in bad:
+                sys.argv = [engine_name, "--url",
+                            "https://wellfound.com/role/r/software-engineer",
+                            flag, value]
+                err = io.StringIO()
+                real_err, sys.stderr = sys.stderr, err
+                try:
+                    engine.parse_args()
+                    code = None
+                except SystemExit as e:
+                    code = e.code
+                finally:
+                    sys.stderr = real_err
+                check("%s %s %s exits 2 naming the flag"
+                      % (engine_name, flag, value),
+                      code == 2 and ("argument " + flag) in err.getvalue(),
+                      "exit %r: %s" % (code, err.getvalue()[-160:]))
+            sys.argv = [engine_name, "--url",
+                        "https://wellfound.com/role/r/software-engineer",
+                        "--proxy-block-retries", "0", "--delay", "0",
+                        "--pages", "1"]
+            try:
+                ok = engine.parse_args() is not None
+            except SystemExit:
+                ok = False
+            check("%s accepts 0 block retries and a 0 delay" % engine_name, ok)
+    finally:
+        sys.argv = before_argv
+
+
+def check_csv_neutralises_formula_cells_and_json_does_not():
+    from output_writer import JobPosting, finish_run
+    hostile = JobPosting(title="=HYPERLINK(\"http://x\")", company_name="@corp",
+                         sku="1", url="https://wellfound.com/jobs/1-x",
+                         description="-flat", salary_min=-5)
+    plain = JobPosting(title="Engineer", company_name="Acme", sku="2",
+                       url="https://wellfound.com/jobs/2-y")
+    with tempfile.TemporaryDirectory() as tmp:
+        prefix = os.path.join(tmp, "run")
+        real_out, sys.stdout = sys.stdout, io.StringIO()
+        try:
+            rc = finish_run([hostile, plain], prefix, "both", False,
+                            blocked=False, stop_reason="completed",
+                            pages_requested=1, pages_completed=1,
+                            start_url="u", final_url="u", mode="role",
+                            extra={"category": "c"})
+        finally:
+            sys.stdout = real_out
+        equal("a run with formula-shaped text still exits 0", rc, 0)
+        rows = list(csv.DictReader(open(prefix + ".csv", newline="",
+                                        encoding="utf-8")))
+        equal("CSV: a leading = is prefixed", rows[0]["title"],
+              "'=HYPERLINK(\"http://x\")")
+        equal("CSV: a leading @ is prefixed", rows[0]["company_name"], "'@corp")
+        equal("CSV: a leading - in text is prefixed", rows[0]["description"],
+              "'-flat")
+        equal("CSV: a NUMBER is never prefixed", rows[0]["salary_min"], "-5")
+        equal("CSV: ordinary text untouched", rows[1]["title"], "Engineer")
+        data = json.load(open(prefix + ".json", encoding="utf-8"))
+        equal("JSON keeps the text exactly", data[0]["title"],
+              "=HYPERLINK(\"http://x\")")
+        meta = json.load(open(prefix + ".meta.json", encoding="utf-8"))
+        equal("the sidecar counts the escaped cells",
+              meta.get("csv_cells_escaped"), 3)
+        equal("...beside the caller's own extra", meta.get("category"), "c")
+        real_out, sys.stdout = sys.stdout, io.StringIO()
+        try:
+            finish_run([plain], prefix, "json", False, blocked=False,
+                       stop_reason="completed", pages_requested=1,
+                       pages_completed=1, start_url="u", final_url="u",
+                       mode="role", extra={"csv_cells_escaped": "caller"})
+        finally:
+            sys.stdout = real_out
+        meta = json.load(open(prefix + ".meta.json", encoding="utf-8"))
+        check("a JSON-only run writes no escape count of its own",
+              meta.get("csv_cells_escaped") == "caller",
+              repr(meta.get("csv_cells_escaped")))
+
+
+def check_the_credential_scan_is_judged_relative_to_the_repo():
+    """A clone under ~/build, /tmp/venv or any skipped NAME used to scan 0
+    files and print ok, because exclusions were tested on the absolute path."""
+    import importlib.util
+    script = os.path.join(HERE, ".github", "ci_checks.py")
+    if not os.path.exists(script):
+        skip("credential-scan", "no .github/ in this tree (the Docker image)")
+        return
+    planted = "ab" * 16       # 32 hex characters, assembled at run time
+    for parent in ("venv", "build", ".venv", "__pycache__", "tmp", "plain"):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = pathlib.Path(tmp) / parent / "wf"
+            repo.mkdir(parents=True)
+            (repo / "probe.py").write_text("KEY = '%s'\n" % planted)
+            spec = importlib.util.spec_from_file_location("_ci_rel", script)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            mod.REPO = repo
+            real_out, sys.stdout = sys.stdout, io.StringIO()
+            try:
+                failed = mod.secret_check()
+            finally:
+                sys.stdout = real_out
+            check("a clone under %s/ still finds a planted key" % parent,
+                  any("probe.py" in f for f in failed), repr(failed))
+    with tempfile.TemporaryDirectory() as tmp:
+        spec = importlib.util.spec_from_file_location("_ci_rel", script)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        mod.REPO = pathlib.Path(tmp)
+        real_out, sys.stdout = sys.stdout, io.StringIO()
+        try:
+            failed = mod.secret_check()
+        finally:
+            sys.stdout = real_out
+        check("a scan that read 0 files FAILS instead of passing",
+              bool(failed), repr(failed))
+
+
+# Private working notes must not be cited from public files. Assembled from
+# pieces so this file does not match itself.
+_PRIVATE_CITATIONS = (
+    "CLAUDE" + ".md", "claude_" + "2scraper", "2scraper_" + "repo_rules",
+    "play" + "book", "template " + "\N{SECTION SIGN}",
+)
+_SECTION_SIGN = "\N{SECTION SIGN}"
+
+
+def check_no_private_citations_in_public_files():
+    """Every tracked file is public. A reference to a private instruction
+    file, or a bare section number from one, means nothing to a reader and
+    leaks the existence of notes they cannot see."""
+    try:
+        tracked = subprocess.run(["git", "ls-files"], cwd=HERE,
+                                 capture_output=True, text=True,
+                                 check=True).stdout.split()
+    except (OSError, subprocess.CalledProcessError):
+        tracked = []
+        for root, dirs, files in os.walk(HERE):
+            dirs[:] = [d for d in dirs if d not in (".git", "__pycache__")]
+            tracked += [os.path.relpath(os.path.join(root, f), HERE)
+                        for f in files]
+    scanned = 0
+    for rel in tracked:
+        path = os.path.join(HERE, rel)
+        try:
+            text = open(path, encoding="utf-8").read()
+        except (OSError, UnicodeDecodeError):
+            continue
+        scanned += 1
+        for token in _PRIVATE_CITATIONS + (_SECTION_SIGN,):
+            if token in text:
+                line = text[:text.index(token)].count("\n") + 1
+                check("%s:%d cites no private notes (%r)" % (rel, line, token),
+                      False)
+    check("the private-citation scan read the tracked files (%d)" % scanned,
+          scanned > 20)
 
 
 CHECKS = [v for k, v in sorted(globals().items()) if k.startswith("check_")]

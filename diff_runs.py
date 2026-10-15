@@ -70,7 +70,7 @@ from output_writer import UNIQUE_BY_SKU_MODES
 # What is worth watching on a job board, and nothing else.
 #
 # A price monitor's fields are absent because a job has no price — porting
-# them would be dead code that looks load-bearing (CLAUDE.md §4). What
+# them would be dead code that looks load-bearing. What
 # changes on a job listing is its PAY, its TERMS and the COMPANY behind it,
 # and those are what anyone diffs a job board for.
 #
@@ -104,7 +104,7 @@ TRACKED_FIELDS = (
 # has no expression for it. So diffing a landing run against a job run would
 # report each of these as a change on every row, and none of it would be
 # about the job. When the two rows disagree on `data_source`, they are
-# reported as `source_changed` rather than as changes (§8: a difference that
+# reported as `source_changed` rather than as changes (a difference that
 # comes with a provenance difference says something about our own two
 # snapshots, not about the site).
 DETAIL_ONLY_FIELDS = (
@@ -287,7 +287,7 @@ def _check_comparable(args) -> bool:
     # Wellfound offers no ordering control at all — there is no sort
     # parameter on any landing route and no `sort` column on the row — so
     # there is nothing here for such a guard to compare, and a guard with no
-    # input would pass for the wrong reason (CLAUDE.md §22).
+    # input would pass for the wrong reason.
     #
     # What DOES change which rows are in a file here is how many pages were
     # fetched, which the sidecar records and the note below reports.

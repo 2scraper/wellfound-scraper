@@ -10,6 +10,63 @@ does it leads the release notes rather than being discovered from a bill.
 
 ## [Unreleased]
 
+> **Behaviour changes:**
+> - **CSV cells that start with `=`, `+`, `-`, `@`, TAB, CR or LF now get a
+>   leading apostrophe** so a spreadsheet reads them as text. Only text
+>   cells, only in the CSV; numbers and the JSON output are unchanged, and
+>   the sidecar records how many cells were escaped as `csv_cells_escaped`.
+> - **Counting flags reject values that skipped or crashed a run** with exit
+>   2 naming the flag: `--pages` and `--concurrency` below 1,
+>   `--proxy-block-retries` below 0 (a negative value fetched nothing at
+>   all), `--delay` and `--retry-delay` below 0 (a negative delay crashed in
+>   `time.sleep`). In `scraper_api_client.py`, `--timeout` below 1 and
+>   `--retries`/`--retry-delay` below 0.
+> - **A 404 now exits 4 in the Playwright and pyppeteer engines and in the
+>   Scraper API client**, as the 0.1.2 notes already said it did: the HTTP
+>   status now reaches the page classifier. Before, a removed job was
+>   waited on, re-fetched and reported as content not obtained (exit 5).
+>   Selenium exposes no HTTP status and still decides by the page body.
+> - **`.env.example` ships `WELLFOUND_URL` commented out**, and an
+>   environment URL no longer collides with `--role`/`--location`/`--remote`
+>   or an explicit `--mode job`/`--mode jobs`: only a `--url` typed on the
+>   command line does.
+
+### Fixed
+
+- **Selenium and pyppeteer crashed when a page was refused and no proxy was
+  configured** — the normal outcome from a datacentre address. The block
+  retry touched `pool.current` with no pool and raised `AttributeError`;
+  pyppeteer also did so on a plain load timeout. Both now re-fetch through
+  the same path, as the Playwright engine does, and rotate only when a pool
+  of more than one exit exists.
+- **Selenium and pyppeteer misread every `--mode job` page.** They
+  classified it as a listing, found no listing payload and reported a parse
+  error: zero rows, exit 5. Every classify call now passes the mode.
+- **The canary skipped green for as long as it existed.** Without the
+  `WELLFOUND_PROXY` secret it now fails with an error naming the secret,
+  and a second job runs from the bare runner and requires the datacentre
+  refusal to be recognised as one (exit 3), not misread or crashed. The
+  exit-5 explanation in the canary named an old meaning.
+- **The credential scan skipped everything when the clone lived under a
+  directory named `build`, `venv`, `.venv` and similar**, because the
+  exclusions were tested on the absolute path. They are now tested on the
+  path inside the repository, and a scan that reads 0 files fails.
+- **`.gitignore`** now covers `--dump-html` page files whatever the base
+  name (`snap.json.page2`), a `live/` directory and root-level `.html`
+  dumps.
+- **Comments and help text** no longer describe other sites' pages, a
+  `challenge` state this repo does not have, or a `--mode profile` it never
+  had, and no longer cite private working notes.
+
+### Tests
+
+- The offline suite now loads each engine with its driver library stubbed
+  and drives the real page loop, so the no-proxy block, the timeout, `--mode
+  job` and the 404 status are checked in every venv, not only where the
+  engine is installed. New checks also cover the environment URL with the
+  role flags, the counting-flag bounds, CSV formula escaping, the scan's
+  path handling and private citations in tracked files.
+
 ## [0.1.2] — 2026-10-13
 
 > **Behaviour change:** `--retries 0` is now a usage error (exit 2) instead

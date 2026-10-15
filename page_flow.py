@@ -2,7 +2,7 @@
 page_flow.py
 ------------
 The retry / solve / blocked decision, as DATA rather than as three copies of
-an if-chain (CLAUDE.md §1).
+an if-chain.
 
 Wellfound answers a request five ways, and four of them want a different
 response:
@@ -21,7 +21,7 @@ Nothing here imports a browser, and **no JavaScript crosses this boundary**:
 Selenium's `execute_script` takes a function BODY with an explicit `return`
 while Playwright and pyppeteer take `() => expr`, so a shared snippet would
 quietly acquire one driver's dialect. The callbacks below are named for the
-OPERATION instead, and each engine spells it in its own dialect (§1).
+OPERATION instead, and each engine spells it in its own dialect.
 """
 
 import argparse
@@ -40,7 +40,7 @@ log = logging.getLogger("page_flow")
 
 # How many job links mean "this response is a listing".
 #
-# `> 1` on purpose, per CLAUDE.md §5: waiting for ONE match resolves on
+# `> 1` on purpose: waiting for ONE match resolves on
 # something unrelated — a nav link, a footer — long before the grid is
 # really there. A landing page carried 32 to 45 job rows across the
 # captures and the thinnest full page held 32, so four is a floor that a
@@ -50,8 +50,7 @@ MIN_CARD_MATCHES = 4
 # A listing page's readiness anchor for the browser engines.
 #
 # A job URL is `/jobs/{id}-{slug}` — a contract with search engines, not a
-# build-generated class, which is §4's "anchor on a URL pattern, never a CSS
-# class". Wellfound's own class names are Tailwind-style utility strings and
+# build-generated class, so it is the anchor rather than a CSS class. Wellfound's own class names are Tailwind-style utility strings and
 # would churn on any deploy.
 #
 # Note this is a readiness signal only. The ROWS come out of `__NEXT_DATA__`,
@@ -82,7 +81,7 @@ def content_timeout_ms(mode: str) -> int:
 #
 # Polled through `count(selector)` — a callback each engine implements with
 # its own `querySelectorAll` call — and NEVER by handing the browser a string
-# to evaluate. CLAUDE.md §18: a site whose Content-Security-Policy omits
+# to evaluate. A site whose Content-Security-Policy omits
 # `unsafe-eval` kills `wait_for_function` with an `EvalError` and takes the
 # run down with exit 1. Wellfound has not been measured for that, and the
 # cheap habit costs nothing on a site that would have allowed it.
@@ -121,7 +120,7 @@ def classify(html: Optional[str], status: Optional[int] = None,
     against a callee that took `status` second, and both crashed on their
     first fetch — invisible to import, `--help`, `compileall` and 400+ green
     offline assertions, because none of those calls a function the way a live
-    run does (§17). `smoke_test.py` binds every engine's call against this
+    run does. `smoke_test.py` binds every engine's call against this
     signature for that reason.
     """
     return detect_page_state(html or "", status, url, mode)
@@ -164,7 +163,7 @@ STATE_POLICY = {
     # A page built out of Wellfound's own assets whose payload we could not
     # read. NOT "zero jobs": a served page that links to jobs and parses to
     # nothing is OUR bug, and reporting it as an empty listing sends the
-    # reader to check the URL instead of the parser (CLAUDE.md §20). Worth
+    # reader to check the URL instead of the parser. Worth
     # one retry in case the document was caught mid-swap, and always worth a
     # dump.
     "parse_error": {"retry": True,  "solve": False, "blocked": False, "parse": False,
@@ -202,7 +201,7 @@ def content_obtained(state: str) -> bool:
     site having emptied out; the chain was `unknown` -> an outcome still
     marked ok -> stop_reason "completed" -> zero rows -> exit 4, with
     `finish_run`'s own exit-5 branch never reachable because nothing ever
-    told it the run had failed (CLAUDE.md §9, §25).
+    told it the run had failed.
     """
     return STATE_POLICY.get(state, STATE_POLICY["unknown"])["obtained"]
 
@@ -213,7 +212,7 @@ def stop_reason_for(load_failed: bool, blocked_by: Optional[str],
 
     One implementation because the engines derive this in seven places
     between them, and three copies of a triage drift silently — which is the
-    argument this module exists for (CLAUDE.md §1). `content_not_obtained_*`
+    argument this module exists for. `content_not_obtained_*`
     is deliberately NOT in `COMPLETE_STOP_REASONS`, so a zero-row run
     carrying it exits 5 rather than 4.
     """
@@ -247,7 +246,7 @@ def should_parse(state: str) -> bool:
 # True here, and CONSULTED rather than merely documented — the engines read
 # it, so setting it False really does stop the retry loop. (A sibling repo
 # carried this constant with a paragraph of justification and no reader,
-# which is the same defect as dead code that looks load-bearing: §17.)
+# which is the same defect as dead code that looks load-bearing.)
 #
 # True because on Wellfound a re-fetch genuinely can change the answer, and
 # the measurement says which kind of re-fetch. From one datacenter address
@@ -260,7 +259,7 @@ def should_parse(state: str) -> bool:
 # CONSULTED rather than merely documented — the engines read it, so setting
 # it False really does stop the retry loop. (A sibling repo carried this
 # constant with a paragraph of justification and no reader, which is the
-# same defect as dead code that looks load-bearing: CLAUDE.md §17.)
+# same defect as dead code that looks load-bearing.)
 RETRY_ON_BLOCKED = True
 
 # How many times to re-fetch a blocked page when there is no proxy pool to
@@ -315,10 +314,40 @@ def attempts(value: str) -> int:
     return n
 
 
+def _number(value: str, kind, minimum, what: str):
+    try:
+        n = kind(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{value!r} is not a number")
+    if n != n or n < minimum:   # n != n: NaN
+        raise argparse.ArgumentTypeError(f"must be {what}, got {value}")
+    return n
+
+
+def at_least_one(value: str) -> int:
+    """argparse type for a COUNT of pages or workers: 1 or more."""
+    return _number(value, int, 1, "at least 1")
+
+
+def non_negative(value: str) -> int:
+    """argparse type for a count of EXTRA tries (0 = none): 0 or more.
+
+    A negative `--proxy-block-retries` made the block loop `range(0)`, so the
+    page was never fetched at all — the same silent no-op `--retries 0` was.
+    """
+    return _number(value, int, 0, "0 or more")
+
+
+def seconds(value: str) -> float:
+    """argparse type for a delay: 0 or more seconds. `time.sleep` raises on a
+    negative value, so `--delay -1` used to crash after page 1."""
+    return _number(value, float, 0.0, "0 or more seconds")
+
+
 def pagination_is_addressable(url: str) -> bool:
     """Whether page N of this listing can be fetched without walking to it.
 
-    This is the question CLAUDE.md §18 says to ask PER URL rather than per
+    Whether pages are addressable is asked PER URL rather than per
     site, and on Wellfound the two page kinds give OPPOSITE answers:
 
       * a `/role/…` landing page takes `?page=N` and honours it. Measured
@@ -362,6 +391,6 @@ def concurrency_limit(cdp_endpoint: Optional[str]) -> Optional[int]:
 
     The Scraping Browser API allows ONE live connection per profile, so N
     workers sharing a `pid` collide with `profile_locked`. Several `pid`s,
-    one run each, is the way to parallelise that path (§7).
+    one run each, is the way to parallelise that path.
     """
     return 1 if cdp_endpoint else None

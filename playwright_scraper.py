@@ -119,10 +119,10 @@ class PageOutcome:
     products: List = field(default_factory=list)
     blocked_by: Optional[str] = None
     load_failed: bool = False
-    # The page_flow state this page came back as ("content", "blocked",
-    # "challenge", "empty", "unknown"). Carried so the caller can tell an
-    # EMPTY page — a /p/<slug> hub, a no-match query, or one page past the
-    # end of a listing — from a page that failed. Both produce zero rows and
+    # The page_flow state this page came back as ("content", "empty",
+    # "blocked", "parse_error", "not_found", "unknown"). Carried so the
+    # caller can tell an EMPTY page — a landing page that matched nothing —
+    # from a page that failed. Both produce zero rows and
     # they mean opposite things.
     state: Optional[str] = None
     # What Wellfound itself said the result set was: `totalJobCount`,
@@ -224,7 +224,7 @@ def _driver(page):
     # `__NEXT_DATA__` in the first response. Every job record a landing page
     # holds — 37, 43, 45 and 32 on four captures — is in the document before
     # any scrolling could happen, so a scroll would be ceremony that looks
-    # load-bearing (CLAUDE.md §4).
+    # load-bearing.
     return {
         "count": lambda selector: len(page.query_selector_all(selector)),
         "sleep": page.wait_for_timeout,
@@ -307,7 +307,7 @@ def _plan_page_urls(args, page_one_url: str,
         # The /jobs feed. `?page=2` on it returns the identical 46 ids as
         # page 1, so planning any page URL at all would manufacture
         # duplicates and report a complete multi-page run holding one page
-        # several times (CLAUDE.md §18).
+        # several times.
         if args.pages > 1:
             logger.info("This listing is served at ONE address — %s. "
                         "`?page=2` on it returns the identical rows as page "
@@ -394,8 +394,8 @@ def _launch_local(pw, args, pool):
     # navigation: Cloudflare calls `turnstile.render(container, params)` once
     # and keeps nothing, so `sitekey`, `action`, `cData` and `chlPageData`
     # exist only inside that call. A static read of a challenge page — any
-    # static read, however careful — cannot produce a solvable task
-    # (CLAUDE.md §19). It costs nothing on a page that never renders one.
+    # static read, however careful — cannot produce a solvable task.
+    # It costs nothing on a page that never renders one.
     context.add_init_script(TURNSTILE_INTERCEPT_JS)
     return browser, context, context.new_page()
 
@@ -612,7 +612,7 @@ def handle_captcha_if_present(page, args) -> bool:
     about the variant and the parameters for one are rejected for the other.
 
     WHAT THIS SITE ACTUALLY PUTS IN FRONT OF A RUN, measured 2026-09-17,
-    because CLAUDE.md §19 is explicit that a sentence about what a solver
+    because a sentence about what a solver
     can do is the most expensive thing this family can get wrong:
 
     * Cloudflare's **managed challenge**, which every route answers with
@@ -684,7 +684,7 @@ def handle_captcha_if_present(page, args) -> bool:
         # successful 107-row scrape. Ungated, `--solve-captcha always` would
         # have bought three solves for three pages that were never blocked.
         #
-        # CLAUDE.md §18 states the rule for the PARSER's marker set; this is
+        # A marker must be tested against good pages before it is trusted; this is
         # the same rule applied to the SOLVER's, which is a second marker set
         # in a second file and was not covered by it.
         if challenge is None and already_rendered <= MIN_CARD_MATCHES:
@@ -700,7 +700,7 @@ def handle_captcha_if_present(page, args) -> bool:
                             "publishes one in its own config — using it.")
             else:
                 # Raising a task without a sitekey buys a rejected token and
-                # an ERROR_CAPTCHA_UNSOLVABLE bill (CLAUDE.md §19). Say so
+                # an ERROR_CAPTCHA_UNSOLVABLE bill. Say so
                 # instead.
                 logger.warning(
                     "A Cloudflare Turnstile is on this page but no sitekey "
@@ -795,7 +795,7 @@ def _solve_budget(args, spent: int):
     real Cloudflare challenge on every fetch: ONE page bought THREE Turnstile
     solves — two from the uncounted call across two block attempts, one from
     the counted one — and every token was refused. The cap read as enforced
-    and was not (CLAUDE.md §17: a policy constant nothing reads is the same
+    and was not (a policy constant nothing reads is the same
     defect as dead code).
 
     Both call sites now go through here.
@@ -847,10 +847,17 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
         logger.info("Fetching page %d/%d: %s", page_num, args.pages, url)
         # Retry a navigation timeout rather than ending the run on it. One
         # network flap on page 12 of 50 should not break the loop.
-        load_failed, exit_failed = False, None
+        load_failed, exit_failed, status = False, None, None
         for attempt in range(1, args.retries + 1):
             try:
-                session.page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                # The response is KEPT: its status is the classifier's
+                # primary signal (a 403 refusal, a 404 for a job that is
+                # gone). Discarding it made `not_found` unreachable, so a
+                # removed job was waited on, retried and reported as content
+                # never obtained.
+                response = session.page.goto(url, wait_until="domcontentloaded",
+                                             timeout=60000)
+                status = getattr(response, "status", None)
                 load_failed = False
                 break
             except (PWTimeout, PWError) as e:
@@ -887,8 +894,10 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
             solves_bought += 1
             if handle_captcha_if_present(session.page, args):
                 # A solve navigated the page. Give the destination a moment
-                # before judging what came back.
+                # before judging what came back, and judge it by its body:
+                # the first navigation's status no longer describes it.
                 session.page.wait_for_timeout(1000)
+                status = None
         elif solves_bought:
             logger.info("Not solving again on page %d: %d purchase(s) already "
                         "made for it and SOLVES_PER_PAGE is %d. A challenge "
@@ -897,7 +906,7 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
                         page_flow.SOLVES_PER_PAGE)
 
         html = _snapshot(session.page, url) or ""
-        state = _classify(session.page, html, mode=args.mode)
+        state = _classify(session.page, html, status, mode=args.mode)
 
         # Wellfound server-renders its payload into `__NEXT_DATA__`, so a
         # listing is parseable in the FIRST response and there is nothing to
@@ -926,21 +935,26 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
                 logger.info("Still nothing after %.0fs (%d match(es) for %s).",
                             wait_timeout / 1000, found, _ready_selector(args))
             html = _snapshot(session.page, url) or html
-            state = _classify(session.page, html, mode=args.mode)
+            # No status here: the document may have changed during the wait
+            # (a challenge that clears itself navigates), so the navigation's
+            # status no longer describes it and the body decides.
+            state = _classify(session.page, html, None, mode=args.mode)
 
-        # The paid path is reached only for state "challenge" — Cloudflare's
-        # managed challenge, which IS a test and can be solved once
-        # `TURNSTILE_INTERCEPT_JS` has captured its parameters. It is bounded
+        # The paid path is reached only for a state the policy marks solvable
+        # ("blocked" here) — Cloudflare's managed challenge IS a test and can
+        # be solved once `TURNSTILE_INTERCEPT_JS` has captured its parameters,
+        # while the widget-less branded refusal has nothing to solve. It is bounded
         # by SOLVES_PER_PAGE so a rotation loop cannot become a bill, and a
         # sitekey-less detection refuses to build a task at all rather than
-        # paying for one the API will reject (CLAUDE.md §19).
+        # paying for one the API will reject.
         if (page_flow.should_solve(state)
                 and _solve_budget(args, solves_bought)):
             solves_bought += 1
             if handle_captcha_if_present(session.page, args):
                 session.page.wait_for_timeout(1000)
                 html = _snapshot(session.page, url) or html
-                state = _classify(session.page, html, mode=args.mode)
+                # The solve reloaded the page; the original status is stale.
+                state = _classify(session.page, html, None, mode=args.mode)
                 # The VERIFIED outcome, and the only one worth reporting: a
                 # "ready" task result is not evidence the token works. This
                 # line is what says whether the money bought anything.
@@ -954,7 +968,7 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
 
         if not page_flow.should_retry(state):
             # "content" and "empty" are both final answers. An empty page is
-            # a CORRECT one — a hub category has no grid, and one page past
+            # a CORRECT one — a landing page that matched nothing, and one page past
             # the end of a listing has no products — so retrying it would
             # spend the user's budget re-confirming the same right answer,
             # and rotating the exit would blame an address for the URL it was
@@ -990,7 +1004,7 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
                 time.sleep(pause)
 
     if load_failed:
-        # NAME the proxy when it was the proxy. CLAUDE.md §8: a dead exit and
+        # NAME the proxy when it was the proxy. A dead exit and
         # a timeout want opposite responses — another try at the same exit
         # versus a different exit — so a message that cannot tell them apart
         # leaves the reader guessing which they got.
@@ -1021,11 +1035,12 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
         # What a caller needs here is WHICH refusal this is, because the two
         # want different answers and only one of them is solvable.
         #
-        #   "You have been blocked | Better Business Bureau®"  — a refusal.
-        #       No widget, no sitekey, nothing to solve. A different exit is
-        #       the only move.
-        #   "Just a moment..." with `cf_chl_opt`                — a test.
-        #       That classifies as "challenge", not here, and IS solvable.
+        #   "Security Check | Wellfound"           — a refusal. No widget,
+        #       no sitekey, nothing to solve. A different exit is the only
+        #       move.
+        #   "Just a moment..." with `_cf_chl_opt`  — a test. It is the same
+        #       "blocked" state, but it carries a widget, so the solve path
+        #       above may have tried it once.
         #
         # Both refusals are HTTP 403 and the branded one wears Wellfound's
         # own name four times, so a reader who only sees "403" cannot tell
@@ -1059,7 +1074,7 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
     # Wellfound embeds the whole result set in the first response, so there
     # is nothing to wait for and nothing to scroll into view. Porting the
     # sibling repos' scroll loop here would be dead code that looks
-    # load-bearing (CLAUDE.md §4).
+    # load-bearing.
 
     # Dumping on success, not only on failure: a run can return the right
     # NUMBER of rows with a field silently unpopulated, and then the only way
@@ -1080,10 +1095,10 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
     # is the "detected is not blocking" rule the captcha default follows,
     # applied to the blocking decision instead of the spending one. But
     # `state != "content"` is still too wide: an EMPTY page is a correct
-    # answer, and a live run of a /p/<slug> hub reported exit 3 on a 191 KB
-    # page the site had plainly served, because the hub's own performance
-    # script names `akamaihd.net` and "akamai" was in the marker list. Both
-    # halves were wrong; the marker is gone (see
+    # answer, and a sibling scraper reported exit 3 on a 191 KB page its
+    # site had plainly served, because a performance script named a vendor
+    # host that was in the marker list. Both halves were wrong; that marker
+    # is gone (see
     # product_parser.BOT_CHALLENGE_MARKERS) and this now only refines the
     # REASON for a page the policy had already given up on.
     vendor = (detect_bot_challenge(html, url=session.page.url)
@@ -1111,7 +1126,7 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
         # something its twins would not.
         # Dump it. A state that holds no rows is a state somebody will have
         # to diagnose, and the only way to tell a parsing bug from a page
-        # that never arrived is the exact bytes (CLAUDE.md §9). Until the
+        # that never arrived is the exact bytes. Until the
         # 2026-10-13 audit this path wrote nothing at all: the auditor's run
         # failed and left no artefact, which is half of why the cause was
         # misread. The blocked path has always dumped; this one did not.
@@ -1312,7 +1327,7 @@ def scrape(args) -> int:
     outcomes: List[PageOutcome] = []
     seen_keys = set()
     blocked = False
-    # All three modes are one row per business-at-a-location, so `sku` is the
+    # All three modes are one row per job posting, so `sku` (the job id) is the
     # key for all of them.
     dedupe_key = "sku"
     # Why the loop ended. "completed" means every requested page was fetched;
@@ -1621,7 +1636,7 @@ def parse_args():
                         "category tree, so this is a name for the QUERY "
                         "rather than a site concept; it exists so two runs of "
                         "different roles are not mistaken for comparable.")
-    p.add_argument("--pages", type=int, default=1,
+    p.add_argument("--pages", type=page_flow.at_least_one, default=1,
                    help="Number of listing pages to fetch. Applies to --mode "
                         "role only. A run PLANS against the `pageCount` the "
                         "site states on page 1 and never asks past it — "
@@ -1630,8 +1645,8 @@ def parse_args():
                         "a run that trusted the request would collect twice. "
                         "A request for more is honoured up to that cap and "
                         "the sidecar records both numbers.")
-    p.add_argument("--delay", type=float, default=2.0, help="Delay between pages, seconds")
-    p.add_argument("--concurrency", type=int, default=1, metavar="N",
+    p.add_argument("--delay", type=page_flow.seconds, default=2.0, help="Delay between pages, seconds")
+    p.add_argument("--concurrency", type=page_flow.at_least_one, default=1, metavar="N",
                    help="Fetch pages through N parallel workers (default 1 — "
                         "unchanged sequential behaviour). Each worker runs its "
                         "own browser and holds its own proxy exit, so N>1 "
@@ -1641,9 +1656,9 @@ def parse_args():
                    help="Attempts per page load before giving up (default 3). "
                         "The pause between attempts doubles each time. A page "
                         "that comes back EMPTY is not retried — see "
-                        "page_flow.STATE_POLICY — because an empty hub "
-                        "category is a correct answer, not a fault.")
-    p.add_argument("--retry-delay", type=float, default=2.0,
+                        "page_flow.STATE_POLICY — because an empty "
+                        "landing page is a correct answer, not a fault.")
+    p.add_argument("--retry-delay", type=page_flow.seconds, default=2.0,
                    help="Seconds before the first page-load retry, doubling "
                         "thereafter (default 2.0)")
     p.add_argument("--format", choices=["json", "csv", "both"], default="both")
@@ -1667,7 +1682,7 @@ def parse_args():
     p.add_argument("--proxy-shuffle", action="store_true",
                    help="Shuffle the pool at startup, so concurrent runs do not "
                         "all begin on the first exit in the file.")
-    p.add_argument("--proxy-block-retries", type=int, default=2,
+    p.add_argument("--proxy-block-retries", type=page_flow.non_negative, default=2,
                    help="When a page comes back refused (HTTP 403) or behind "
                         "a captcha, retry it from this many OTHER exits before "
                         "giving up (default 2). Needs a pool of more than one; "
@@ -1736,15 +1751,28 @@ def parse_args():
     p.add_argument("--headless", action="store_true", default=True)
     p.add_argument("--headful", dest="headless", action="store_false")
     args = p.parse_args()
+    # What was TYPED, captured before the environment fills anything in.
+    typed_url = args.url
     # Fill --twocaptcha-key / --cdp-endpoint / --proxy / --url from the
     # environment or .env when the flag was not given. An explicit flag wins.
     env_config.apply(args)
+    # A WELLFOUND_URL from the environment or .env is a default target, not
+    # a query the user typed, so it yields to the role flags and to an
+    # explicit --mode job/jobs. Without this, a copied .env.example made
+    # `--role X` and `--mode jobs` exit 2 as if --url had been typed with them.
+    if not typed_url and args.url and (
+            args.role or args.location or args.remote
+            or (args.mode in ("job", "jobs")
+                and mode_for_url(args.url) not in (None, args.mode))):
+        logger.info("Not using WELLFOUND_URL from the environment: the "
+                    "command line selects the query.")
+        args.url = None
 
     # --url and the role flags are two ways to say the same thing, and only
     # one of them may win. Refused rather than merged: a --location that
     # disagreed with the one already in a /role/l/… path would silently
     # scrape a different listing than the address names, which is the hazard
-    # CLAUDE.md §10 bans a --country flag for, in the form it takes here.
+    # a flag that overrides part of a URL always carries.
     if args.url and (args.role or args.location or args.remote):
         conflicting = [name for name, value in
                        (("--role", args.role), ("--location", args.location),
@@ -1780,13 +1808,13 @@ def parse_args():
         # Refused rather than attempted. This parser reads Wellfound's own
         # Apollo cache and its JobPosting block; pointing it at another site
         # would not fail loudly, it would return zero rows and look like an
-        # empty result (§8). The REASON is given, because a wrong reason
+        # empty result. The REASON is given, because a wrong reason
         # about a host that plainly is one sends the reader hunting a typo.
         p.error(f"{args.url!r} {why}.")
 
     # The URL knows which mode it belongs to, so a disagreement is caught
-    # here rather than producing zero rows from the wrong reader. CLAUDE.md
-    # §8: a parser pointed at the wrong page kind fails silently, and silence
+    # here rather than producing zero rows from the wrong reader.
+    # A parser pointed at the wrong page kind fails silently, and silence
     # is the failure this check exists to convert into an error message.
     url_mode = mode_for_url(args.url)
     if url_mode and url_mode != args.mode:

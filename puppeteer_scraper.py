@@ -647,8 +647,8 @@ def _solve_budget(args, spent: int):
 
     Measured 2026-09-17 from a datacenter address, which meets a real
     Cloudflare challenge on every fetch: ONE page bought THREE Turnstile
-    solves, and every token was refused. The cap read as enforced and was not
-    (CLAUDE.md §17). Both call sites now go through here.
+    solves, and every token was refused. The cap read as enforced and was not.
+    Both call sites now go through here.
     """
     return spent < page_flow.SOLVES_PER_PAGE
 
@@ -688,12 +688,15 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
         # `exit_failed` holds Chromium's own name for a proxy fault, or None.
         # Named and shaped exactly as in the other two engines: the give-up
         # branch below reports it, and three engines that structure this
-        # differently drift (CLAUDE.md §6).
-        load_failed, exit_failed = False, None
+        # differently drift.
+        load_failed, exit_failed, status = False, None, None
         for attempt in range(1, args.retries + 1):
             try:
-                bridge.run(page.goto(url, {"waitUntil": "domcontentloaded",
-                                           "timeout": 60000}))
+                # The response is kept: its status is the classifier's primary
+                # signal (403 refusal, 404 for a job that is gone).
+                response = bridge.run(page.goto(
+                    url, {"waitUntil": "domcontentloaded", "timeout": 60000}))
+                status = getattr(response, "status", None)
                 load_failed = False
                 break
             except Exception as e:  # noqa: BLE001 — pyppeteer raises many types
@@ -716,8 +719,15 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
                                    args.retries, text[:120], pause)
                     time.sleep(pause)
 
-        if load_failed and block_attempt < block_retries:
-            pool.advance("unusable exit or repeated load failure")
+        # Only a dead EXIT is worth a rotation, and only when there is another
+        # exit to rotate to — the same gate as the Playwright engine. This used
+        # to rotate on any load failure and called `pool.advance` with no pool
+        # at all, raising AttributeError on a plain timeout without --proxy.
+        if exit_failed and has_pool and block_attempt < block_retries:
+            logger.warning("Exit %s is unusable (%s) — rotating to another "
+                           "one (%d/%d).", mask(pool.current), exit_failed,
+                           block_attempt + 1, block_retries)
+            pool.advance(f"unusable exit: {exit_failed}")
             session.relaunch()
             bridge, page = session.bridge, session.page
             d = _driver(session)
@@ -731,13 +741,16 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
             solves_bought += 1
             if handle_captcha_if_present(session, args):
                 time.sleep(1)
+                status = None   # the solve reloaded; that status is stale
 
         elif solves_bought:
             logger.info("Not solving again on page %d: %d purchase(s) "
                         "already made for it and SOLVES_PER_PAGE is %d.",
                         page_num, solves_bought, page_flow.SOLVES_PER_PAGE)
         html = _snapshot(session, url) or ""
-        state = page_flow.classify(html, None, page.url)
+        # `mode` is passed because a job page carries no listing payload:
+        # classified as a listing, every one came out `parse_error`.
+        state = page_flow.classify(html, status, page.url, mode=args.mode)
 
         # Wellfound server-renders its payload, so a listing is parseable
         # in the FIRST response. The wait below is only for the state that
@@ -759,24 +772,22 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
                 logger.info("Still nothing after %.0fs (%d match(es) for %s).",
                             wait_ms / 1000.0, found, sel)
             html = _snapshot(session, url) or html
-            state = page_flow.classify(html, None, page.url)
+            # No status: the document may have changed during the wait.
+            state = page_flow.classify(html, None, page.url, mode=args.mode)
 
-        # The paid path is reached only for state "challenge" — Cloudflare's
-        # Managed Challenge, which IS a test. It is NOT reached for
-        # "blocked": that page carries no widget, so a solve there would be a
-        # charge for nothing. Mirrors the other two engines.
-        #
-        # The paid path is reached only for state "challenge", which no
-        # capture of this site has ever produced. Wired up because a bot
-        # manager can be switched on between deploys, and bounded by
-        # SOLVES_PER_PAGE so a speculative path cannot become a bill.
+        # The paid path is reached only for a state the policy marks solvable
+        # ("blocked" here). Cloudflare's managed challenge IS a test; the
+        # branded refusal carries no widget and no sitekey, and the solver
+        # refuses to build a task without one, so it costs nothing there.
+        # Bounded by SOLVES_PER_PAGE. Mirrors the other two engines.
         if (page_flow.should_solve(state)
                 and _solve_budget(args, solves_bought)):
             solves_bought += 1
             if handle_captcha_if_present(session, args):
                 time.sleep(1)
                 html = _content(session) or html
-                state = page_flow.classify(html, url=page.url)
+                state = page_flow.classify(html, None, page.url,
+                                           mode=args.mode)
                 if state == "content":
                     logger.info("The solve was accepted — page %d is content "
                                 "now.", page_num)
@@ -787,7 +798,7 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
 
         if not page_flow.should_retry(state):
             # "content" and "empty" are both final answers. An empty page is
-            # a CORRECT one — a hub category has no grid — so retrying it
+            # a CORRECT one — a landing page that matched nothing — so retrying it
             # would re-confirm the same right answer, and rotating the exit
             # would blame an address for the URL it was given.
             break
@@ -796,16 +807,29 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
         # so a different exit is the only thing that plausibly changes the
         # outcome.
         if block_attempt < block_retries:
-            logger.warning("Page %d came back as %s from %s — retrying from "
-                           "another exit (%d/%d).", page_num, state,
-                           mask(pool.current), block_attempt + 1, block_retries)
-            pool.advance(f"{state} on page {page_num}")
-            session.relaunch()
-            bridge, page = session.bridge, session.page
-            d = _driver(session)
+            if has_pool:
+                logger.warning("Page %d came back as %s from %s — retrying "
+                               "from another exit (%d/%d).", page_num, state,
+                               mask(pool.current), block_attempt + 1,
+                               block_retries)
+                pool.advance(f"{state} on page {page_num}")
+                session.relaunch()
+                bridge, page = session.bridge, session.page
+                d = _driver(session)
+            else:
+                # No pool, so no other exit: re-fetch through the same access
+                # path, as the Playwright engine does. This branch used to
+                # touch `pool.current` unconditionally and raised
+                # AttributeError on the ordinary no-proxy block.
+                pause = args.retry_delay * (block_attempt + 1)
+                logger.warning("Page %d came back as %s — re-fetching through "
+                               "the same access path in %.1fs (%d/%d).",
+                               page_num, state, pause, block_attempt + 1,
+                               block_retries)
+                time.sleep(pause)
 
     if load_failed:
-        # NAME the proxy when it was the proxy. CLAUDE.md §8: a dead exit and
+        # NAME the proxy when it was the proxy. A dead exit and
         # a timeout want opposite responses — another try at the same exit
         # versus a different exit — so a message that cannot tell them apart
         # leaves the reader guessing which they got.
@@ -860,11 +884,9 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
         logger.info("Saved the snapshot the parser sees to %s (%d bytes).",
                     dump_path, len(html))
 
-    # Only for a state page_flow already counts as BLOCKED. An EMPTY
-    # page is a correct answer, and a live run of a /p/<slug> hub
-    # reported exit 3 on a page the site had plainly served because the
-    # hub's own performance script names `akamaihd.net`. Mirrors
-    # playwright_scraper exactly.
+    # Only for a state page_flow already counts as BLOCKED: an EMPTY page
+    # is a correct answer and must never become exit 3 because a marker
+    # matched it. Mirrors playwright_scraper exactly.
     vendor = (detect_bot_challenge(html, url=page.url)
               if page_flow.counts_as_blocked(state) else None)
     if vendor:
@@ -885,7 +907,7 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
     if not page_flow.should_parse(state):
         # Dump it. A state that holds no rows is a state somebody will have
         # to diagnose, and the only way to tell a parsing bug from a page
-        # that never arrived is the exact bytes (CLAUDE.md §9). Until the
+        # that never arrived is the exact bytes. Until the
         # 2026-10-13 audit this path wrote nothing at all: the auditor's run
         # failed and left no artefact, which is half of why the cause was
         # misread. The blocked path has always dumped; this one did not.
@@ -984,13 +1006,10 @@ def scrape(args) -> int:
     outcomes: List[PageOutcome] = []
     seen_keys = set()
     blocked = False
-    # All three modes are one row per business-at-a-location.
+    # All three modes are one row per job posting, keyed by its id.
     dedupe_key = "sku"
-    # Only --mode product is single-page. A SHOP FRONT paginates exactly like
-    # a category listing — ?page=N, the same tiles — and treating it as
-    # single-page made `--mode shop --pages 2` fetch one page and report
-    # "complete", which is the silent-success failure this family exists to
-    # avoid. Found on the first live shop run.
+    # --mode job is one page by construction and --mode jobs is a feed
+    # served at one address; only --mode role paginates.
     stop_reason = ("single_page_mode" if args.mode == "job"
                    else "single_page_listing" if args.mode == "jobs"
                    else "completed")
@@ -1166,20 +1185,20 @@ def parse_args():
                    help="Label to tag the run with in the sidecar. Defaults "
                         "to what the URL selects. Wellfound has no category "
                         "tree, so this names the QUERY, not a site concept.")
-    p.add_argument("--pages", type=int, default=1,
+    p.add_argument("--pages", type=page_flow.at_least_one, default=1,
                    help="Listing pages to fetch (--mode role only). A run "
                         "plans against the `pageCount` the site states on "
                         "page 1 and never asks past it: page 48 of a 47-page "
                         "listing answers HTTP 200 with page 1 AGAIN.")
-    p.add_argument("--delay", type=float, default=2.0, help="Delay between pages, seconds")
-    p.add_argument("--concurrency", type=int, default=1, metavar="N",
+    p.add_argument("--delay", type=page_flow.seconds, default=2.0, help="Delay between pages, seconds")
+    p.add_argument("--concurrency", type=page_flow.at_least_one, default=1, metavar="N",
                    help="Accepted for flag parity and IGNORED here: parallel "
                         "page fetching lives in playwright_scraper.py.")
     p.add_argument("--retries", type=page_flow.attempts, default=3,
                    help="Attempts per page load before giving up (default 3). "
                         "A page that comes back EMPTY is not retried: an empty "
-                        "hub category is a correct answer, not a fault.")
-    p.add_argument("--retry-delay", type=float, default=2.0,
+                        "landing page is a correct answer, not a fault.")
+    p.add_argument("--retry-delay", type=page_flow.seconds, default=2.0,
                    help="Seconds before the first retry, doubling thereafter")
     p.add_argument("--format", choices=["json", "csv", "both"], default="both")
     p.add_argument("--out", default="wellfound_jobs", help="Output file prefix")
@@ -1192,7 +1211,7 @@ def parse_args():
                         "Wins over --proxy.")
     p.add_argument("--proxy-rotate", choices=list(ROTATE_MODES), default="per-run")
     p.add_argument("--proxy-shuffle", action="store_true")
-    p.add_argument("--proxy-block-retries", type=int, default=2)
+    p.add_argument("--proxy-block-retries", type=page_flow.non_negative, default=2)
     p.add_argument("--twocaptcha-key", default=None, help="2captcha.com API key")
     p.add_argument("--allow-empty", action="store_true",
                    help="Write output files even when 0 rows were found.")
@@ -1248,7 +1267,22 @@ def parse_args():
     p.add_argument("--headless", action="store_true", default=True)
     p.add_argument("--headful", dest="headless", action="store_false")
     args = p.parse_args()
+    # What was TYPED, captured before the environment fills anything in.
+    typed_url = args.url
+    # Fill --twocaptcha-key / --cdp-endpoint / --proxy / --url from the
+    # environment or .env when the flag was not given. An explicit flag wins.
     env_config.apply(args)
+    # A WELLFOUND_URL from the environment or .env is a default target, not
+    # a query the user typed, so it yields to the role flags and to an
+    # explicit --mode job/jobs. Without this, a copied .env.example made
+    # `--role X` and `--mode jobs` exit 2 as if --url had been typed with them.
+    if not typed_url and args.url and (
+            args.role or args.location or args.remote
+            or (args.mode in ("job", "jobs")
+                and mode_for_url(args.url) not in (None, args.mode))):
+        logger.info("Not using WELLFOUND_URL from the environment: the "
+                    "command line selects the query.")
+        args.url = None
 
     # Spelled identically to the other two engines.
     if args.url and (args.role or args.location or args.remote):

@@ -28,7 +28,7 @@ mode for it here.
 
     # TWOCAPTCHA_KEY and the CDP endpoint are read from .env as
     # $WELLFOUND_CDP_ENDPOINT, so neither needs to be typed — a secret in
-    # argv is readable by anything that can run `ps` (CLAUDE.md §3).
+    # argv is readable by anything that can run `ps`.
 """
 
 import argparse
@@ -48,6 +48,7 @@ from product_parser import (BOT_CHALLENGE_MARKERS, MODES, DEFAULT_MODE,
                             parse_products, parse_detail)
 from output_writer import finish_run, SOURCE_DEFAULT
 import env_config
+import page_flow
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("scraper_api_client")
@@ -244,7 +245,23 @@ def _run_once(args, attempt: int = 1, attempts: int = 1) -> int:
 
     # Same policy as the browser engines: the status decides the blocked
     # case, because this site's refusal has no marker to detect.
-    state = detect_page_state(html, status=upstream_status, url=args.url)
+    state = detect_page_state(html, status=upstream_status, url=args.url,
+                              mode=args.mode)
+    if state == "not_found":
+        # A 404 is the site's own definitive answer — the job is gone — so it
+        # is a genuine empty result (exit 4), not a parse failure, exactly as
+        # in the browser engines.
+        logger.warning("Wellfound answered HTTP 404 for %s: nothing there.",
+                       args.url)
+        return finish_run([], args.out, args.format, args.allow_empty,
+                          blocked=False, stop_reason="completed",
+                          pages_requested=1, pages_completed=1,
+                          pages_failed=[], mode=args.mode,
+                          source=SOURCE_DEFAULT, start_url=args.url,
+                          final_url=args.url,
+                          extra={"category": args.category
+                                 or category_from_url(args.url),
+                                 "via": "scraper_api"})
     if state == "blocked":
         dump = f"{args.out}_scraperapi_debug.html"
         with open(dump, "w", encoding="utf-8") as f:
@@ -293,7 +310,7 @@ def _run_once(args, attempt: int = 1, attempts: int = 1) -> int:
     label = args.category or category_from_url(args.url)
 
     # A page the API SERVED that parses to nothing is this repo's bug, not
-    # an empty catalogue (CLAUDE.md §20). It used to return 4 — the same
+    # an empty catalogue. It used to return 4 — the same
     # conflation the engines carried until this audit — so it now reports a
     # non-complete stop reason, which `finish_run` maps to exit 5 and never
     # to "no jobs".
@@ -349,7 +366,7 @@ def parse_args():
                         "selects.")
     p.add_argument("--format", choices=["json", "csv", "both"], default="both")
     p.add_argument("--out", default="wellfound_jobs_scraperapi", help="Output file prefix")
-    p.add_argument("--timeout", type=int, default=60,
+    p.add_argument("--timeout", type=page_flow.at_least_one, default=60,
                    help=f"API-side task timeout in seconds (1-{MAX_API_TIMEOUT}, default 60)")
     p.add_argument("--cdp-url", default=None,
                    help="Route the fetch through an existing browser session over CDP "
@@ -366,11 +383,11 @@ def parse_args():
     p.add_argument("--allow-empty", action="store_true",
                    help="Write output files even when 0 products were parsed. Off by "
                         "default so a failed fetch can't overwrite a good result.")
-    p.add_argument("--retries", type=int, default=1,
+    p.add_argument("--retries", type=page_flow.non_negative, default=1,
                    help="Extra attempts if a bot-challenge page comes back. One retry is "
                         "usually worth it. Each attempt is a separate billable task, so "
                         "this defaults to 1.")
-    p.add_argument("--retry-delay", type=int, default=10,
+    p.add_argument("--retry-delay", type=page_flow.seconds, default=10,
                    help="Seconds between retries (default 10)")
     p.add_argument("--dump-html", default=None,
                    help="Also write the raw returned HTML to this path (always, even on success)")

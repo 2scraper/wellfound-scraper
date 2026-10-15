@@ -6,8 +6,8 @@ Everything this repo knows about wellfound.com lives here.
 Where the data actually is
 --------------------------
 Counted on 2026-09-17 over the captures in `captures/wellfound`, because
-CLAUDE.md §15 says to count the JSON-LD blocks before writing a line of
-parser and the answer decides the whole design:
+The JSON-LD blocks were counted before writing a line of parser, and the
+answer decides the whole design:
 
     /role/{role}                       0 JSON-LD blocks
     /role/r/{role}                     0 JSON-LD blocks
@@ -27,8 +27,8 @@ they belong to different applications:
     server-rendered by a different stack — and publishes one schema.org
     `JobPosting` instead.
 
-This is CLAUDE.md §20's "a DETAIL page may publish a different JSON-LD type
-than the listing", in its sharpest form: the detail page publishes a
+A DETAIL page may publish a different JSON-LD type than the listing, and
+here that happens in its sharpest form: the detail page publishes a
 different *mechanism*, not merely a different type. Porting the listing
 parser to a detail page returns zero rows in silence, so `parse_detail()`
 is a separate function and `smoke_test.py` pins that failure directly.
@@ -39,7 +39,7 @@ field a row needs is inside the Apollo cache, the rendered tile carries a
 strict subset of it, and the class names are build hashes. A DOM path would
 be a worse copy of the same data. What replaces it is a shape check: if
 `__NEXT_DATA__` is present and parses but yields no job records, that is
-`parse_error` rather than "empty category" (§20).
+`parse_error` rather than "empty category".
 
 Three routes, one query
 -----------------------
@@ -67,7 +67,7 @@ Trap 1 — **the server clamps an out-of-range page back to page 1 and
 answers HTTP 200.** `?page=48` against a 47-page listing returned the same
 37 job ids as page 1, byte for byte. A run that walked past the end would
 re-collect page 1 for as long as it was asked to. The "no new sku"
-terminator (§7 layer 3) does catch it, but there is a stronger and
+terminator does catch it, but there is a stronger and
 unambiguous signal available and `echoed_page()` reads it: the Apollo cache
 key embeds the arguments the SERVER used, so a response to a `?page=48`
 request is keyed `seoLandingPageJobSearchResults({"page":1,...})` and says
@@ -75,8 +75,7 @@ in its own payload which page it really is.
 
 Trap 2 — **`/jobs` is not addressable at all.** `?page=2` on it does not
 fail and does not empty; it returns the identical 46 job ids as page 1.
-This is CLAUDE.md §18's "one page kind may have no per-page addresses",
-so `pagination_is_addressable()` answers False for it, the engines refuse
+One page kind may have no per-page addresses, so `pagination_is_addressable()` answers False for it, the engines refuse
 `--concurrency > 1` with that reason, and a `--pages 5` run of that mode
 stops after one page with `stop_reason=single_page_listing` rather than
 reporting a complete 5-page run holding one page five times.
@@ -108,8 +107,8 @@ Which fixes the rules below:
     as 30 to 80.
   * currency comes from the symbol, and only these four appear: `$` 576,
     `£` 16, `₹` 8, `€` 2. `$` is read as USD because that is what it means
-    on a US job board and nothing better is on the page — CLAUDE.md §4's
-    rung 4, a guess, and `salary_currency` is null rather than defaulted
+    on a US job board and nothing better is on the page — a
+    guess, and `salary_currency` is null rather than defaulted
     when no symbol is present at all.
   * `'No equity'` is a STATEMENT, not a missing value: it means the offer
     has none. It is recorded as `has_equity=False`, which is different from
@@ -118,7 +117,7 @@ Which fixes the rules below:
 The listing string carries no period. `$140k` on a job board reads as a
 year, but the page does not say so, so `salary_period` stays null on a
 listing row and is filled only from the detail page's JSON-LD, which states
-`unitText: "YEAR"`. §8: never present a guess as a fact.
+`unitText: "YEAR"`. Never present a guess as a fact.
 
 Where both views exist they agree — see `smoke_test.py`, which pins job
 4697947 at 100000–180000 USD from the detail page against `'$100k – $180k
@@ -166,13 +165,13 @@ BASE_URL = "https://" + CANONICAL_HOST
 # spelling of the same host would put two spellings into the output for one
 # job. The refusal says the host redirects and asks for the wellfound.com
 # form — it does NOT claim the address is dead, because it is not
-# (CLAUDE.md §5: a refusal with a false reason sends the reader hunting for
+# (a refusal with a false reason sends the reader hunting for
 # a typo).
 LEGACY_HOSTS = ("angel.co", "www.angel.co", "angellist.com", "www.angellist.com")
 
 # The one address `--mode jobs` reads. Named HERE rather than written out in
 # each engine: three copies of a URL literal is three places for it to drift,
-# and CLAUDE.md §1 puts site knowledge in this module and a handful of named
+# and site knowledge belongs in this module and a handful of named
 # constants in the engines — not a bare URL in all three.
 FEED_URL = BASE_URL + "/jobs"
 
@@ -245,7 +244,7 @@ def _epoch_to_iso(value: Any) -> Optional[str]:
 
     Guarded against a value out of range rather than trusted: a bad
     timestamp raises inside `utcfromtimestamp`, and one malformed row must
-    not take a page of good ones down with it (§8, fail loudly but locally).
+    not take a page of good ones down with it (fail loudly but locally).
     """
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
@@ -297,7 +296,7 @@ def _text_list(values: Any) -> Optional[List[str]]:
 _COMP_SEPARATORS = ("•", "|", "·")
 
 # Only these four were measured. An allowlist rather than a general symbol
-# class, for the same reason CLAUDE.md §4 wants an ISO-code allowlist: a
+# class, for the same reason a currency code needs an allowlist: a
 # stray glyph beside a number must not mint a currency.
 _CURRENCY_BY_SYMBOL = {"$": "USD", "£": "GBP", "€": "EUR", "₹": "INR"}
 
@@ -431,7 +430,7 @@ def route_of(url: str) -> Optional[str]:
 def is_supported_url(url: str) -> Tuple[bool, str]:
     """(ok, reason). The reason is shown to the user, so it says WHY.
 
-    CLAUDE.md §5: refusing a host with a false reason sends the reader
+    Refusing a host with a false reason sends the reader
     hunting for a typo. `angel.co` really is Wellfound — it redirects here —
     so the refusal says that rather than "not a Wellfound URL".
     """
@@ -488,7 +487,7 @@ def _query_pairs(query: str) -> List[Tuple[str, str]]:
 def page_url(url: str, page: int) -> str:
     """Replace `?page=N`, preserving every other query parameter.
 
-    CLAUDE.md §5: replace rather than duplicate, and keep what was there —
+    Replace rather than duplicate, and keep what was there —
     a landing URL may carry campaign parameters the user pasted and losing
     them changes what the site answers.
     """
@@ -595,7 +594,7 @@ def apollo_state(payload: Any) -> Optional[Dict[str, Any]]:
     a wrapper whose only key is `data`. Reading `apolloState` itself gives a
     one-entry dict whose values have no `__typename`, which looks like an
     empty page rather than like a wrong path — the exact silent-zero failure
-    §4 lists. Accepts either level so a caller that already unwrapped one
+    to avoid. Accepts either level so a caller that already unwrapped one
     gets the same answer.
     """
     if isinstance(payload, str):
@@ -642,7 +641,7 @@ def echoed_page(state: Optional[Dict[str, Any]]) -> Optional[int]:
     `?page=48` against a 47-page listing comes back keyed `{"page":1,…}`.
     Comparing that against the page that was requested turns "the site
     silently re-served page 1" into an unambiguous end-of-listing signal,
-    which CLAUDE.md §17 prefers over the weaker no-new-sku heuristic.
+    which is stronger than the weaker no-new-sku heuristic.
     """
     if not isinstance(state, dict):
         return None
@@ -701,7 +700,7 @@ def _company_of(state: Dict[str, Any], job_key: str,
     The upward case is why this takes the job's cache KEY: that key is what
     the company's list holds, and matching on it is exact. Scanning for a
     company whose list contains this job is the same "stop at the ancestor
-    that covers exactly one product" discipline §4 describes for tiles,
+    that covers exactly one product" discipline used for product tiles,
     done against ids instead of DOM depth.
     """
     direct = _deref(state, job.get("startup"))
@@ -783,7 +782,7 @@ def parse_listing(source: Any, *, url: str = "", page: Optional[int] = None,
     server serialised them and therefore the order the page paints. That
     makes `position` meaningful; `page` is threaded in from the caller
     rather than inferred, because a parser cannot know which page it was
-    handed and CLAUDE.md §18 names the bug where every row claimed page 1.
+    handed, and guessing produced rows that all claimed page 1.
     """
     state = apollo_state(source) if not _looks_like_state(source) else source
     if not isinstance(state, dict):
@@ -805,7 +804,7 @@ def _looks_like_state(source: Any) -> bool:
 def listing_meta(state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """The site's own pagination arithmetic, for the run sidecar.
 
-    CLAUDE.md §21: a sidecar that says only "complete" is lying by omission
+    A sidecar that says only "complete" is lying by omission
     where the site caps what it will serve. Wellfound does not cap the way
     bbb-scraper's site does — 47 pages really is all 923 companies — but it counts COMPANIES
     per page while a consumer counts jobs, so `total_jobs` beside
@@ -1011,7 +1010,7 @@ def parse_detail(html: str, url: str = "", *,
 # before it was written down — five served captures (three landing shapes,
 # the /jobs feed, a job detail page) against two refusals (the branded 403
 # a plain HTTP client gets, and the /company/ page a real Chromium on a
-# residential exit gets). CLAUDE.md §18: a marker that matches a good page
+# residential exit gets). A marker that matches a good page
 # is worse than no marker.
 #
 # The counts, 2026-09-17, as served-max vs refused-min:
@@ -1025,7 +1024,7 @@ def parse_detail(html: str, url: str = "", *,
 #     cdn-cgi/challenge-platform     1   vs  1      REJECTED — both
 #
 # The rejected three are worth naming because two of them are what this
-# family's own notes recommend. CLAUDE.md §19 promotes
+# family's own notes recommend. Those notes promote
 # `challenges.cloudflare.com` as "the one that works" on the strength of
 # foodpanda-scraper and bbb-scraper measurements; on Wellfound it is exactly
 # BACKWARDS.
@@ -1058,9 +1057,9 @@ BOT_CHALLENGE_MARKERS = (
     ("cloudflare", "Cloudflare Ray ID"),
 )
 
-# The hosts a page the site actually served is BUILT out of. CLAUDE.md §8's
+# The hosts a page the site actually served is BUILT out of. The
 # positive-asset test, which is the only signal that answers correctly for
-# Chromium's own network-error page (§18) — that page carries the site's
+# Chromium's own network-error page — that page carries the site's
 # hostname in its <title> and nothing else of the site's.
 SERVED_ASSET_HOSTS = ("photos.wellfound.com", "/_next/static")
 
@@ -1077,7 +1076,7 @@ _SITEKEY_RE = re.compile(
 def site_turnstile_sitekey(html: str) -> Optional[str]:
     """The Turnstile sitekey the site publishes in its own page config.
 
-    This is the answer to CLAUDE.md §18's real question — not "did we meet
+    This answers the real question — not "did we meet
     a captcha" but "is one configured, and would we recognise it". One is:
     the NEXT.JS routes carry this key — the landings and the /jobs feed —
     and the site renders a widget with it into `#turnstile_widget` when its
@@ -1088,7 +1087,7 @@ def site_turnstile_sitekey(html: str) -> Optional[str]:
     script but publish no key in their config.
     That widget IS solvable from a static read, because the sitekey is
     published — unlike Cloudflare's own interstitial, which publishes none
-    and needs the `turnstile.render` interception hook §19 describes.
+    and needs the `turnstile.render` interception hook.
     """
     m = _SITEKEY_RE.search(html or "")
     return m.group("key") if m else None
@@ -1098,7 +1097,7 @@ def detect_bot_challenge(html: str, url: str = "") -> Optional[str]:
     """The vendor refusing this page, or None.
 
     Only ever called for a page the policy has already decided is not
-    content — CLAUDE.md §18's gate, so this can never fire on a correct
+    content — that gate is why this can never fire on a correct
     "no results" answer and turn it into exit 3.
     """
     if not html:
@@ -1118,7 +1117,7 @@ def references_own_assets(html: str) -> int:
 
 # The site's own copy for a landing page that matched nothing. An
 # UNAMBIGUOUS positive signal, so it is checked BEFORE the asset-count
-# heuristic — CLAUDE.md §17's classification-order trap, where a minimal
+# heuristic — the classification-order trap, where a minimal
 # real page with few asset references came back as "blocked".
 NO_RESULTS_MARKERS = (
     "No jobs found",
@@ -1135,7 +1134,7 @@ def detect_page_state(html: Optional[str], status: Optional[int] = None,
     Ordered by how much each signal PROVES, not by how cheap it is.
 
     1. HTTP 403 is unambiguous on this site and is the primary signal, the
-       way §8 takes MediaMarkt's status as primary: every refusal measured
+       way a status is primary on any site that states one: every refusal measured
        came with 403 and every served page with 200. It is checked before
        any markup, because the branded refusal is titled "Security Check |
        Wellfound" and carries the site's name four times — a text or title
@@ -1172,7 +1171,7 @@ def detect_page_state(html: Optional[str], status: Optional[int] = None,
             return "empty"
         # A Next.js page the site served, whose cache holds no job nodes
         # and which does not say it found nothing, is OUR failure to read
-        # it — never "0 jobs" (CLAUDE.md §20).
+        # it — never "0 jobs".
         return "parse_error"
 
     lowered = text.lower()

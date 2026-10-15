@@ -59,7 +59,7 @@ be solved". 2captcha solves Cloudflare Turnstile
 (`TurnstileTaskProxyless`), enterprise reCAPTCHA
 (`RecaptchaV2EnterpriseTaskProxyless`) and ordinary v2/v3, and this module
 builds all of them. The only sentence this repo is entitled to is which task
-types it implements (CLAUDE.md §19).
+types it implements.
 
 PROVENANCE OF THE FIGURES BELOW
 -------------------------------
@@ -1175,16 +1175,14 @@ solve_recaptcha_v3 = solve_recaptcha
 # a JPEG of distorted text and a GET form). Roughly 190 lines of it, and none
 # of it is ported here, because this site has no such page.
 #
-# What this site does instead is refuse a HEADLESS browser. Measured
-# 2026-09-10 from five different addresses, four of them residential: Akamai
-# answers with HTTP 403 and a 394-byte "Access Denied" page carrying a
-# reference id — no form, no image, no widget, nothing for a solver to
-# answer. And the trigger is the CLIENT rather than the address: the very
-# same addresses were served HTTP 200 and the full catalogue by a browser
-# with a real window. So the response to a block here is `--headful` or
-# `--cdp-endpoint`, not a solve and not a better proxy, and
-# product_parser.detect_page_state reports it as "blocked" rather than
-# "challenge" precisely so no solve is attempted and nothing is charged.
+# What this site does instead is refuse an ADDRESS. Measured 2026-09-17:
+# Cloudflare answers a datacentre exit with HTTP 403 on every route, either
+# as the branded "Security Check | Wellfound" page (no widget at all) or as
+# the "Just a moment..." interstitial, while a residential exit was served
+# 200 on every route this scraper reads. product_parser.detect_page_state
+# reports both as "blocked"; the solve path builds a task only when a
+# Turnstile sitekey was actually captured, so the widget-less refusal costs
+# nothing, and a different exit is the move that clears it.
 #
 # The reCAPTCHA / hCaptcha / Turnstile machinery above IS kept, and that is a
 # deliberate asymmetry rather than an inconsistency. Detection stays broad
@@ -1192,6 +1190,6 @@ solve_recaptcha_v3 = solve_recaptcha
 # what the address has been doing — a narrow list is how a challenge gets
 # reported as an empty page months later. A solver for a challenge this site
 # has never been observed to serve is dead code; a DETECTOR for one is cheap
-# insurance: a detection that fires on a page whose lots have
-# already rendered guards nothing, which is why the default is
-# `when-blocked` and why it counts lot links before it spends.
+# insurance: a detection that fires on a page whose job records
+# have already rendered guards nothing, which is why the default is
+# `when-blocked` and why it counts rendered matches before it spends.

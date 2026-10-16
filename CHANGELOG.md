@@ -10,6 +10,8 @@ does it leads the release notes rather than being discovered from a bill.
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-10-16
+
 > **Behaviour change.** `--allow-empty` now writes an empty file only for a
 > genuine empty result, and its sidecar says `status: empty` (was
 > `failed`). A blocked or failed run with `--allow-empty` no longer
@@ -304,7 +306,8 @@ date is given.
   `$100k – $180k` on the listing and 100000–180000 USD in the detail page's
   `baseSalary`.
 
-[Unreleased]: https://github.com/2scraper/wellfound-scraper/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/2scraper/wellfound-scraper/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/2scraper/wellfound-scraper/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/2scraper/wellfound-scraper/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/2scraper/wellfound-scraper/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/2scraper/wellfound-scraper/compare/v0.1.0...v0.1.1

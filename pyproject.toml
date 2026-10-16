@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wellfound-scraper"
-version = "0.2.0"
+version = "0.2.1"
 description = "Wellfound (AngelList Talent) job scraper: role landing pages, the jobs feed and individual job pages."
 readme = "README.md"
 license = "MIT"

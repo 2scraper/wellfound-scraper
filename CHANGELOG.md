@@ -12,8 +12,7 @@ does it leads the release notes rather than being discovered from a bill.
 
 ### Changed
 
-- CI only: the canary's paid `listing` job now runs weekly (Mondays 05:40 UTC)
-  and on a manual dispatch; the free `datacentre` job still runs daily.
+- CI only: the whole canary, free and paid jobs alike, now runs weekly (Mondays 05:40 UTC) and on a manual dispatch; the daily schedule is removed.
 
 ## [0.2.1] — 2026-10-16
 

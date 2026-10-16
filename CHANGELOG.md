@@ -10,6 +10,11 @@ does it leads the release notes rather than being discovered from a bill.
 
 ## [Unreleased]
 
+### Changed
+
+- CI only: the canary's paid `listing` job now runs weekly (Mondays 05:40 UTC)
+  and on a manual dispatch; the free `datacentre` job still runs daily.
+
 ## [0.2.1] — 2026-10-16
 
 > **Behaviour change.** `--allow-empty` now writes an empty file only for a

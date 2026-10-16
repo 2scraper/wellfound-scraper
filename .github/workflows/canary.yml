@@ -10,7 +10,8 @@
 # `/jobs/{id}-{slug}`, three times out of three.
 #
 # A GitHub runner is a datacenter address, so the job that checks real data
-# (`listing`) runs through the WELLFOUND_PROXY secret:
+# (`listing`) runs through the WELLFOUND_PROXY secret. Every run bills the
+# proxy, so `listing` runs weekly (Mondays) and on a manual dispatch only:
 #
 #     gh secret set WELLFOUND_PROXY --repo 2scraper/wellfound-scraper
 #
@@ -40,6 +41,9 @@ on:
     # 05:40 UTC. Not on the hour: every scheduled workflow on GitHub fires at
     # :00 and the queue there is long.
     - cron: "40 5 * * *"
+    # Mondays only: the paid job (listing) runs on this
+    # schedule (each run bills); the free jobs keep the daily one above.
+    - cron: "40 5 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -48,6 +52,8 @@ permissions:
 jobs:
   listing:
     name: role listing (needs the WELLFOUND_PROXY secret)
+    # Paid path: weekly schedule or a manual dispatch only.
+    if: github.event_name != 'schedule' || github.event.schedule == '40 5 * * 1'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:

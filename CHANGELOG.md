@@ -10,6 +10,31 @@ does it leads the release notes rather than being discovered from a bill.
 
 ## [Unreleased]
 
+> **Behaviour changes.** (1) A run through a proxy now makes one pre-check
+> request before starting a browser. A proxy that answers **HTTP 407** or
+> **402** ends the run with **exit 5** and
+> `<out>.latest_attempt.meta.json` (`status: failed`, `stop_reason:
+> proxy_auth_failed` / `proxy_balance_exhausted`) instead of timing out on
+> every retry. (2) Through a local proxy, images, video/audio and fonts are
+> **no longer downloaded**; `--load-media` (or `WELLFOUND_LOAD_MEDIA=1`)
+> restores them. Runs without a proxy or over `--cdp-endpoint` are unchanged.
+
+### Added
+
+- `proxy_check.py`: the proxy pre-check (one CONNECT plus `HEAD /robots.txt`
+  on the target host, no third-party service) and media blocking for all
+  three engines. The 407 message names `WELLFOUND_PROXY` and says the
+  gateway refused the credential (or the traffic balance is exhausted); a
+  402 says the proxy traffic/balance is exhausted. Neither prints the
+  credential. A proxy that does not answer keeps the existing retry
+  behaviour.
+- `--load-media` on all three engines, and `WELLFOUND_LOAD_MEDIA` (commented
+  out) in `.env.example`.
+- Offline checks: a stub proxy that answers 407/402/200 or nothing, each
+  engine driven to exit 5 without a browser on a 407, the attempt sidecar,
+  the Playwright route handler, the pyppeteer Fetch patterns, the Selenium
+  blocked-URL list, and when each engine installs blocking.
+
 ### Changed
 
 - CI only: the whole canary, free and paid jobs alike, now runs weekly (Mondays 05:40 UTC) and on a manual dispatch; the daily schedule is removed.

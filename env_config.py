@@ -40,6 +40,8 @@ ENV_KEYS = {
     "WELLFOUND_CDP_ENDPOINT": "cdp_endpoint",
     "WELLFOUND_PROXY": "proxy",
     "WELLFOUND_URL": "url",
+    # "1" keeps images/video/fonts loading through a proxy (--load-media).
+    "WELLFOUND_LOAD_MEDIA": "load_media",
 }
 # Deliberately NOT here: an output prefix. `--out` already carries a non-empty
 # default, so `apply()` would never see it as unset and the variable would be

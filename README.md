@@ -265,6 +265,34 @@ both directions.
 unsatisfiable pins, and pyppeteer and selenium collide on `urllib3`. Use a
 virtualenv per engine if you need more than one.
 
+### Proxy traffic savers
+
+A proxy is billed by traffic, so a run through `--proxy` / `--proxy-file` /
+`WELLFOUND_PROXY` does two things to avoid paying for bytes it does not use:
+
+- **One pre-check before any browser starts.** A CONNECT through the proxy
+  and a `HEAD /robots.txt` on the target host. Chromium reports a proxy's
+  HTTP 407 as a navigation timeout, so a wrong or exhausted credential used
+  to spend every retry before ending as a load failure. Now a **407** (the
+  gateway refused the credential, or the traffic balance is exhausted) or a
+  **402** (proxy traffic/balance exhausted) ends the run in seconds with
+  **exit 5** and `<out>.latest_attempt.meta.json` saying `status: failed`,
+  `stop_reason: proxy_auth_failed` (or `proxy_balance_exhausted`). Any
+  previous output and its `.meta.json` are left as they were. The message
+  names the variable and never prints the credential. If the proxy does not
+  answer at all, the run goes on as before and the browser makes its own
+  attempt. No pre-check runs without a proxy or with `--cdp-endpoint`.
+- **Images, video/audio and web fonts are not downloaded** through a local
+  proxy: all three engines abort those requests (Playwright by resource type,
+  pyppeteer through CDP's Fetch domain, Selenium by file extension with CDP
+  `Network.setBlockedURLs`). Every row comes from JSON the server embeds in
+  the page, never from an image or a font, and Cloudflare's challenge is
+  scripts and an iframe, which are not blocked. This was decided from what
+  the parser reads: on 2026-10-20 a free run from a datacentre was refused by
+  Cloudflare before any listing was served, so a loaded-vs-blocked comparison
+  of live rows was not possible. `--load-media` (or `WELLFOUND_LOAD_MEDIA=1`)
+  loads them. Without a proxy, or over `--cdp-endpoint`, nothing is blocked.
+
 ---
 
 ## Pagination, and the trap in it
@@ -330,7 +358,9 @@ one page five times.
 ## Output contract
 
 Exit codes: `0` ok · `1` crash · `2` bad usage · `3` blocked · `4` zero jobs
-· `5` remote API error · `6` partial.
+· `5` content not obtained (a remote API error, a load failure, or a proxy
+that answered 407/402 to the pre-check: `stop_reason: proxy_auth_failed` /
+`proxy_balance_exhausted`) · `6` partial.
 
 * **A run that finds nothing writes nothing** — last night's good output is
   never replaced with `[]`.
@@ -339,7 +369,9 @@ Exit codes: `0` ok · `1` crash · `2` bad usage · `3` blocked · `4` zero jobs
   by number.
 * **A failed run writes no sidecar**, so a `"failed"` file never sits beside
   good data (the one exception is below, and only where no earlier output
-  exists).
+  exists). A run the proxy pre-check stopped writes
+  `<out>.latest_attempt.meta.json` instead, a separate file, and leaves
+  `<out>.meta.json` alone.
 * **`--allow-empty` is for a genuine empty result only.** With it, a run
   that finished and found nothing writes an empty JSON (`[]`), a CSV holding
   only its header, and a sidecar with `status: empty` and its `stop_reason`,

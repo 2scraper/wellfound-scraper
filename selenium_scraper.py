@@ -79,12 +79,14 @@ from product_parser import (MODES, DEFAULT_MODE, FEED_URL, category_from_url,
                             parse_listing_page, references_own_assets,
                             role_url, site_turnstile_sitekey)
 from output_writer import (dedupe_by_key, finish_run, EXIT_API_ERROR,
+                           finish_without_fetch,
                            SOURCE_DEFAULT)
 import page_flow
 from page_flow import MIN_CARD_MATCHES
 from proxy_pool import (from_args as proxy_pool_from_args, mask, ROTATE_MODES,
                         ProxyError, split_credentials)
 import env_config
+import proxy_check
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("selenium_scraper")
@@ -283,6 +285,8 @@ class _Session:
 
         self.driver = webdriver.Chrome(options=options)
         self._apply_timeouts()
+        if proxy_check.block_media(self.args, self.pool, remote=False):
+            proxy_check.install_selenium(self.driver)
 
         version = self.driver.capabilities.get("browserVersion", "")
         if version:
@@ -912,6 +916,16 @@ def scrape(args) -> int:
                        "which is the primary engine. Running one page at a "
                        "time.")
 
+    # One request through the proxy before a browser exists: a 407 or 402
+    # from the gateway ends the run here, in seconds, instead of surfacing
+    # as a navigation timeout after every retry.
+    refused = proxy_check.gate(pool, _target_url(args))
+    if refused:
+        return finish_without_fetch(
+            args.out, stop_reason=refused.stop_reason,
+            pages_requested=args.pages, start_url=_target_url(args),
+            mode=args.mode, source=SOURCE_DEFAULT)
+
     session = None
     try:
         session = _Session(args, pool).open()
@@ -1138,6 +1152,7 @@ def parse_args():
                         "setting has anything to act on today, and neither "
                         "helps with a refusal.")
     p.add_argument("--min-score", type=float, default=0.7)
+    proxy_check.add_media_flags(p)
     p.add_argument("--cdp-endpoint", default=None,
                    help="Attach to a running browser at host:port. Must NOT "
                         "carry credentials — chromedriver's debuggerAddress "

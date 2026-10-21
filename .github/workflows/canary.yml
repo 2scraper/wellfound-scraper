@@ -89,8 +89,16 @@ jobs:
                    # would abort the step BEFORE the echo below.
           python playwright_scraper.py \
             --role software-engineer --remote \
-            --pages 3 --format both --out canary
+            --pages 3 --format both --proxy-budget-mb 10 --out canary
           echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Proxy traffic of the listing run
+        # The run meters what it sends through WELLFOUND_PROXY and stops at
+        # --proxy-budget-mb 10. This puts the figure in the step summary and
+        # fails the job when the cap was hit, so a page that has grown heavy
+        # is a red run rather than a quietly larger bill.
+        if: ${{ !cancelled() }}
+        run: python3 .github/proxy_traffic.py "listing" canary
 
       - name: Check what came back
         env:
@@ -251,8 +259,14 @@ jobs:
           set +e
           python playwright_scraper.py \
             --role software-engineer --remote \
-            --pages 1 --format json --out bare
+            --pages 1 --format json --proxy-budget-mb 10 --out bare
           echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Proxy traffic of the bare run
+        # No proxy on this job, so this reports "not metered"; kept so the
+        # summary says so rather than leaving the reader to guess.
+        if: ${{ !cancelled() }}
+        run: python3 .github/proxy_traffic.py "datacentre" bare
 
       - name: Check the refusal was recognised
         env:

@@ -42,6 +42,8 @@ ENV_KEYS = {
     "WELLFOUND_URL": "url",
     # "1" keeps images/video/fonts loading through a proxy (--load-media).
     "WELLFOUND_LOAD_MEDIA": "load_media",
+    # Proxy traffic cap per run in MB (--proxy-budget-mb); empty = 10.
+    "WELLFOUND_PROXY_BUDGET_MB": "proxy_budget_mb",
 }
 # Deliberately NOT here: an output prefix. `--out` already carries a non-empty
 # default, so `apply()` would never see it as unset and the variable would be
@@ -203,7 +205,11 @@ def apply(args, keys=None, quiet=False):
     for env_name, dest in (keys or ENV_KEYS).items():
         if not hasattr(args, dest):
             continue
-        if getattr(args, dest):
+        current = getattr(args, dest)
+        # A number can only have been typed (every mapped default is None,
+        # False or ""), so an explicit `--proxy-budget-mb 0` is not "unset".
+        if current or (isinstance(current, (int, float))
+                       and not isinstance(current, bool)):
             continue
         value = env_value(env_name)
         if value:

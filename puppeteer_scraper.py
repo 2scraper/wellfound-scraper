@@ -95,6 +95,7 @@ from proxy_pool import (from_args as proxy_pool_from_args, mask, ROTATE_MODES,
                         ProxyError, split_credentials)
 import env_config
 import proxy_check
+import proxy_meter
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("puppeteer_scraper")
@@ -396,6 +397,8 @@ class _Session:
                 {"username": credentials[0], "password": credentials[1]}))
         if proxy_check.block_media(self.args, self.pool, remote=False):
             self.bridge.run(proxy_check.install_pyppeteer(self.page))
+        self.bridge.run(proxy_meter.install_pyppeteer(
+            self.page, proxy_meter.of(self.args)))
         return self
 
     def _apply_fingerprint(self):
@@ -695,6 +698,7 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
         # differently drift.
         load_failed, exit_failed, status = False, None, None
         for attempt in range(1, args.retries + 1):
+            proxy_meter.check(args)
             try:
                 # The response is kept: its status is the classifier's primary
                 # signal (403 refusal, 404 for a job that is gone).
@@ -1039,6 +1043,7 @@ def scrape(args) -> int:
             args.out, stop_reason=refused.stop_reason,
             pages_requested=args.pages, start_url=_target_url(args),
             mode=args.mode, source=SOURCE_DEFAULT)
+    meter = proxy_meter.start(args, pool, remote=bool(args.cdp_endpoint))
 
     bridge = _AsyncBridge()
     session = None
@@ -1096,10 +1101,17 @@ def scrape(args) -> int:
 
                 if index + 1 < len(planned):
                     time.sleep(args.delay)
+    except proxy_meter.ProxyBudgetExceeded as e:
+        logger.error("Stopping: %s. The pages already gathered are kept.", e)
     finally:
         if session is not None:
             session.close()
         bridge.close()
+
+    # Over budget is the stop reason whatever the loop concluded: the
+    # requests after the cap were refused, so nothing after it was read.
+    if meter is not None and meter.exceeded:
+        stop_reason, blocked = proxy_meter.STOP_BUDGET_EXCEEDED, False
 
     all_rows = []
     merged_seen = set()
@@ -1157,6 +1169,7 @@ def scrape(args) -> int:
                  "total_companies": total_companies,
                  "pages_available": pages_available,
                  "paginates_by_url": args.mode == "role"}
+    extra = proxy_meter.finish(args, extra)
 
     return finish_run(all_rows, args.out, args.format, args.allow_empty,
                       blocked=blocked, stop_reason=stop_reason,
@@ -1241,6 +1254,7 @@ def parse_args():
                         "helps with a refusal.")
     p.add_argument("--min-score", type=float, default=0.7)
     proxy_check.add_media_flags(p)
+    proxy_meter.add_budget_flag(p)
     p.add_argument("--cdp-endpoint", default=None,
                    help="Connect to a running browser over CDP, e.g. "
                         "ws://user:pass@host:port. pyppeteer authenticates on "

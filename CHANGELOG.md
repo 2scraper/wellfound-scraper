@@ -68,6 +68,10 @@ does it leads the release notes rather than being discovered from a bill.
   environment (`--proxy-budget-mb 0` wins over `WELLFOUND_PROXY_BUDGET_MB`).
 - CI only: the whole canary, free and paid jobs alike, now runs weekly (Mondays 05:40 UTC) and on a manual dispatch; the daily schedule is removed.
 
+### Fixed
+
+- The pyppeteer and Selenium proxy meter counts only `http://` / `https://` requests and responses that came over the network. Chrome's own loads (the `chrome://` new-tab page, `data:`, `blob:`), cache hits (`requestServedFromCache`, `fromDiskCache`, `fromPrefetchCache`, `fromServiceWorker`) and Chrome's error page count nothing. A sibling repo's Selenium run had counted about 2.8 MB of new-tab scripts while its proxy carried about 6 KB. The pyppeteer block sent once the budget is spent now reaches the page's own event loop even when the budget runs out on another thread.
+
 ## [0.2.1] — 2026-10-16
 
 > **Behaviour change.** `--allow-empty` now writes an empty file only for a

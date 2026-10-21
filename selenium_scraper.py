@@ -87,6 +87,7 @@ from proxy_pool import (from_args as proxy_pool_from_args, mask, ROTATE_MODES,
                         ProxyError, split_credentials)
 import env_config
 import proxy_check
+import proxy_meter
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("selenium_scraper")
@@ -283,7 +284,11 @@ class _Session:
                     "likely refuse them. Use playwright_scraper.py or "
                     "puppeteer_scraper.py for an authenticated proxy.")
 
+        # The meter reads chromedriver's performance log, which can only be
+        # asked for before the driver starts.
+        proxy_meter.selenium_options(options, proxy_meter.of(self.args))
         self.driver = webdriver.Chrome(options=options)
+        proxy_meter.install_selenium(self.driver, proxy_meter.of(self.args))
         self._apply_timeouts()
         if proxy_check.block_media(self.args, self.pool, remote=False):
             proxy_check.install_selenium(self.driver)
@@ -340,6 +345,8 @@ class _Session:
     def close(self):
         try:
             if self.driver is not None:
+                # The last page's traffic is still in the performance log.
+                proxy_meter.drain_selenium(self.driver)
                 # quit(), not close(): close() ends one window and leaves the
                 # driver process running, which on a per-page rotation would
                 # leak a chromedriver per page.
@@ -593,9 +600,12 @@ def _fetch_one_page(session, args, pool, page_num: int, url: str) -> PageOutcome
         logger.info("Fetching page %d/%d: %s", page_num, args.pages, url)
         load_failed, exit_failed = False, None
         for attempt in range(1, args.retries + 1):
+            proxy_meter.drain_selenium(session.driver)
+            proxy_meter.check(args)
             try:
                 session.driver.get(url)
                 load_failed = False
+                proxy_meter.drain_selenium(session.driver)
                 break
             except (TimeoutException, WebDriverException) as e:
                 text = str(e)
@@ -925,6 +935,7 @@ def scrape(args) -> int:
             args.out, stop_reason=refused.stop_reason,
             pages_requested=args.pages, start_url=_target_url(args),
             mode=args.mode, source=SOURCE_DEFAULT)
+    meter = proxy_meter.start(args, pool, remote=bool(args.cdp_endpoint))
 
     session = None
     try:
@@ -981,9 +992,16 @@ def scrape(args) -> int:
 
                 if index + 1 < len(planned):
                     time.sleep(args.delay)
+    except proxy_meter.ProxyBudgetExceeded as e:
+        logger.error("Stopping: %s. The pages already gathered are kept.", e)
     finally:
         if session is not None:
             session.close()
+
+    # Over budget is the stop reason whatever the loop concluded: the
+    # requests after the cap were refused, so nothing after it was read.
+    if meter is not None and meter.exceeded:
+        stop_reason, blocked = proxy_meter.STOP_BUDGET_EXCEEDED, False
 
     all_rows = []
     merged_seen = set()
@@ -1043,6 +1061,7 @@ def scrape(args) -> int:
                  "total_companies": total_companies,
                  "pages_available": pages_available,
                  "paginates_by_url": args.mode == "role"}
+    extra = proxy_meter.finish(args, extra)
 
     return finish_run(all_rows, args.out, args.format, args.allow_empty,
                       blocked=blocked, stop_reason=stop_reason,
@@ -1153,6 +1172,7 @@ def parse_args():
                         "helps with a refusal.")
     p.add_argument("--min-score", type=float, default=0.7)
     proxy_check.add_media_flags(p)
+    proxy_meter.add_budget_flag(p)
     p.add_argument("--cdp-endpoint", default=None,
                    help="Attach to a running browser at host:port. Must NOT "
                         "carry credentials — chromedriver's debuggerAddress "

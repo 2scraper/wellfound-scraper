@@ -1,4 +1,4 @@
-# wellfound-scraper
+# Wellfound Scraper — Job Listings, Salary and Equity in Python
 
 [![release](https://img.shields.io/github/v/release/2scraper/wellfound-scraper?sort=semver)](https://github.com/2scraper/wellfound-scraper/releases)
 [![tests](https://github.com/2scraper/wellfound-scraper/actions/workflows/tests.yml/badge.svg)](https://github.com/2scraper/wellfound-scraper/actions/workflows/tests.yml)
@@ -7,6 +7,8 @@
 [![licence](https://img.shields.io/badge/licence-MIT-green)](LICENSE)
 [![engines](https://img.shields.io/badge/engines-Playwright%20%C2%B7%20Selenium%20%C2%B7%20Puppeteer%20%C2%B7%20Scraping%20Browser%20API-lightgrey)](#engines)
 [![what you need](https://img.shields.io/badge/what%20you%20need-a%20residential%20exit-orange)](#do-you-need-to-pay-for-anything)
+
+**Wellfound scraper** — an open-source (MIT) Python tool that reads wellfound.com role landing pages, the /jobs feed and individual job pages and writes job titles, company size and badges, salary and equity ranges and full descriptions to JSON or CSV. It needs a residential exit and nothing else: measured 2026-09-17, a datacenter address was refused on every route, while a 2Captcha residential US exit got HTTP 200 on every route this scraper reads. Use it for a job-listings dataset or salary research, and compare two runs with `diff_runs.py`.
 
 Scrapes job listings from [wellfound.com](https://wellfound.com) (formerly
 AngelList Talent): role landing pages, the `/jobs` discovery feed, and
@@ -446,6 +448,23 @@ reports a skip.
 Contributions: [CONTRIBUTING.md](CONTRIBUTING.md) ·
 Security: [SECURITY.md](SECURITY.md) ·
 Changes: [CHANGELOG.md](CHANGELOG.md)
+
+## Guides
+
+- [How to run the 2scraper scrapers: setup, proxies, exit codes and access modes](https://2captcha.com/h/how-to-run-2scraper-open-source-scrapers) — installation, `.env`, `.meta.json` for the whole family.
+
+## Related scrapers
+
+Same CLI conventions, same output contract (one row per item, JSON or CSV, a `.meta.json` sidecar and shared exit codes):
+
+- [Just Join IT scraper](https://github.com/2scraper/justjoin-scraper) — Polish IT job offers with real salaries, seniority, skill…
+- [Mercor scraper](https://github.com/2scraper/mercor-scraper) — AI-talent marketplace: contract roles, rates, eligibility…
+- [Better Business Bureau scraper](https://github.com/2scraper/bbb-scraper) — BBB search and category listings with no key or proxy, plus…
+- [Flippa scraper](https://github.com/2scraper/flippa-scraper) — Online businesses for sale on Flippa
+- [G2 scraper](https://github.com/2scraper/g2-scraper) — Categories, product pages and pricing pages
+- [Google Play scraper](https://github.com/2scraper/googleplay-scraper) — Apps, installs, rating histograms and unbounded reviews…
+
+All scrapers: [github.com/2scraper](https://github.com/2scraper) · Need another site? [Open a request](https://github.com/2scraper/.github/issues/new?title=%5BScraper%20request%5D%20)
 
 ## Licence
 
